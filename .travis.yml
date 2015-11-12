@@ -1,0 +1,11 @@
+language: ruby
+branches:
+  only:
+    - jekyll
+rvm:
+- 2.2.0
+sudo: false
+script: bundle exec rake deploy
+env:
+  global:
+    secure: aovbzeAk6Diw+HocNWSqcSrvy0ek0Zlyr0K519IQp9oQ7W3sx6b2JVCvIXofQAWCMfohYVypxl/Ha3o1069SIJ+ufMRAC6F6Ew891rbcGj9fscxNA7PeWFzGV9LsAXT+SmoUMcu4GqqnnTKF7zlIzzBXDQPiQo3JDL5LyyCtKyLQAQoCeYJYR7C1NPCz73lqn+QAXz0DdEM/8omRUHHhoscicYFVkiHEQ7xcRwIgMdOtCLeshH/2c8XPuwLaRZq0o3wTkM+UCTMRmwMFXYnIIXhApPHYR8dASXVOylKPjvIjMES4ANZOaMphleLsX3cIGmKrvY4Mz2xv4gVtUzYqw/jLe4hZLwdrJn/r6WHJ9mWlZVz9AjmVLR81ZT/HtaMpqWRC/ReeUvE0AQNaFuH4u8Dk/yEF596NEgzgeSJYEeDB7y3Q45OIf6jUMfHWrGGfXjIDgX5YP+BP5xc6NDCMrnPNsdACXfscL4yUUVmY5dGvQ/nWPfd/qwJ5a/6tRFX2EwvZTuKvexaw14MurVqZZLqYSk7U4ABiTZYfHnnarMJBBc2b/s6Mv7fctEAm7ioWbysU0y8uYQVUwowxYiNrbROT3zS48YkrDZpxPJjta2RWzoUkHHzlUgIg5dXD6+ncNOlRdg0i0SMcQuk+tqWvfagdOcYea9/ptv8Z1/Geg4s=

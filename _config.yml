@@ -1,0 +1,48 @@
+# Plugins
+gems:
+    - jekyll-asciidoc
+    - jekyll-paginate
+
+# Permalinks
+#
+# Use of `relative_permalinks` ensures post links from the index work properly.
+permalink:          pretty
+
+# Setup
+title:              Hardbits
+tagline:            making hard bits softer
+description:        adventures in making hardware and software
+url:                https://blog.chrylis.com
+paginate:           5
+paginate_path:      "page/:num"
+baseurl:            ""
+
+# Assets
+#
+# We specify the directory for Jekyll so we can use @imports.
+exclude:
+    - vendor
+    
+sass:
+  sass_dir:         _sass
+  style:            :compressed
+
+# About/contact
+author:
+  name:             Christopher Smith
+  url:              https://twitter.com/chrylis
+  email:            chrylis@gmail.com
+
+highlighter:        coderay
+timezone:           America/Central
+
+asciidoctor:
+    safe: 0
+    attributes:
+        - icons=font
+        - source-highlighter=coderay
+        - coderay-css=style
+        - allow-uri-read=true
+
+tag_page_layout:    tag_index
+tag_page_dir:       tag
