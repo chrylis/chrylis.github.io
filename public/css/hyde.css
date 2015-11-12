@@ -80,7 +80,14 @@ html {
   color: #fff;
   margin-top: 0;
   font-family: "Roboto Slab", serif;
-  font-size: 3.25rem;
+/*  font-size: 3.25rem; */
+}
+
+.sidebar-about img {
+    width: 2rem;
+    height: 2rem;
+    display: inline;
+    vertical-align: middle;
 }
 
 /* Sidebar nav */
