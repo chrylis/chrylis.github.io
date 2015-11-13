@@ -39,6 +39,7 @@ timezone:           America/Central
 asciidoctor:
     safe: 0
     attributes:
+        - hardbreaks!
         - icons=font
         - source-highlighter=coderay
         - coderay-css=style
