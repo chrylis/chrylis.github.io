@@ -1,0 +1,58 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: Introducing the Groovy JPA Toolkit
+summary: The Groovy JPA Toolkit is a collection of utilities to make writing JPA classes in Groovy easier.
+comments: true
+disqus_id: introducing-gjt
+---
+
+=== `setup()`
+
+The https://en.wikibooks.org/wiki/Java_Persistence/What_is_JPA%3F[Java Persistence API] is a
+wonderful tool for mapping Java persistent domain classes onto a data store (usually, but not
+always, a SQL database). JPA providers such as http://hibernate.org/orm[Hibernate ORM] manage
+mappings, conversions, lazy joins, transactions, and more with minimal effort on our part.
+
+However, even though JPA is comparatively lightweight (anyone remember
+https://docs.oracle.com/cd/E16439_01/doc.1013/e13981/ent21imp001.htm[EJB CMP]?), there are a few
+common bits of boilerplate that get repeated ad nauseam, such as specifying `@Id` and `@Version`
+fields, and
+https://schuchert.wikispaces.com/JPA+Tutorial+1+-+Make+Relationship+Bi-directional[managing]
+https://dzone.com/articles/jpa-implementation-patterns-4[bidirectional]
+http://blog.jbaysolutions.com/2011/09/19/jpa-2-relationships-onetomany/[relationships]
+is a tedious chore that is prone to subtle heisenbugs. Repetitive code ought to be replaced with
+intelligent tooling.
+
+Some of these issues have been addressed to varying degrees:
+https://projects.spring.io/spring-roo/[Spring Roo], for example, uses AspectJ to insert bookkeeping
+fields and property accessors into POJOs using inter-type declarations. It is, however, limited in
+its capabilities for managing relationships, and it requires Maven as a build system.
+
+=== `run()`
+
+The Groovy JPA Toolkit is a uniquely Groovy attempt at streamlining the task of writing JPA domain
+classes, using the power of Groovy's
+link:++http://www.groovy-lang.org/metaprogramming.html#_compile_time_metaprogramming++[compile-time
+AST transformations], which allow for comprehensive control over classes as they're being compiled.
+We can insert properties, add annotations to class members, and even _modify other classes_, which
+permits managing those pesky relationships and even packaging up some common design patterns
+into a single annotation.
+
+This series will walk through the development of the GJT, which is a refinement of some ad-hoc
+tooling I put together while working on a specific domain implementation and learning the
+Groovy AST. I'll start with the simple transformations of adding properties, and as we pick up steam
+we'll tackle some of the more complicated longstanding issues with managing object relationships.
+
+=== `getContext()`
+
+Most of my own understanding of Groovy's compile-time metaprogramming comes from
+http://www.infoq.com/presentations/groovy-compiler[C&eacute;dric Champeau's presentation on the
+Groovy compiler] and http://www.infoq.com/presentations/groovy-ast-transformations[Paul King's on
+AST transformations], both at SpringOne2GX 2015, as well as jumping into the source for the `@Slf4j`
+and `@ToString` transformations.
+
+The code is https://github.com/chrylis/groovy-jpa-toolkit[hosted on GitHub] and will be pushed
+to https://search.maven.org/[the Central Repository]. Comments on both design and implementation are
+welcome. If there's a use case that the Toolkit doesn't cover that you think can be automated, open
+an issue and tell me about it.
