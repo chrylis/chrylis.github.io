@@ -4,7 +4,7 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-11-13T15:29:43+00:00</updated>
+ <updated>2015-11-16T11:18:54+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
@@ -13,12 +13,375 @@
 
  
  <entry>
+   <title>GJT: Adding simple properties</title>
+   <link href="https://blog.chrylis.com/2015/11/16/gjt-simple-properties/"/>
+   <updated>2015-11-16T00:00:00+00:00</updated>
+   <id>https://blog.chrylis.com/2015/11/16/gjt-simple-properties</id>
+   <content type="html">&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-setup-code&quot;&gt;&lt;code&gt;setup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In this post, we&amp;#8217;ll start off by examining the simplest components of
+&lt;a href=&quot;/2015/11/13/introducing-gjt/&quot;&gt;the Groovy JPA Toolkit&lt;/a&gt;: transformations that add
+a single property to the annotated class, such as ID and version properties. We&amp;#8217;ll also see how to
+combine these transformations with information specific to a particular domain configuration, such
+as ID generation strategies, in a reusable package with Groovy&amp;#8217;s &lt;code&gt;@AnnotationCollector&lt;/code&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;This series assumes some familiarity with the concepts of
+&lt;a href=&quot;https://en.wikipedia.org/wiki/Abstract_syntax_tree&quot;&gt;abstract syntax trees&lt;/a&gt; and the Groovy
+compilation process. For those wanting additional grounding in the AST transformation process
+generally, I recommend &lt;a href=&quot;https://melix.github.io/ast-workshop/&quot;&gt;C&amp;eacute;dric&amp;#8217;s online AST Workshop&lt;/a&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;admonitionblock note&quot;&gt;
+&lt;table&gt;
+&lt;tr&gt;
+&lt;td class=&quot;icon&quot;&gt;
+&lt;i class=&quot;fa icon-note&quot; title=&quot;Note&quot;&gt;&lt;/i&gt;
+&lt;/td&gt;
+&lt;td class=&quot;content&quot;&gt;
+I originally considered attempting to target Java 7 for this toolkit. However, the only
+major reason for not using Java 8 in modern code is Android compatibility, and these transformations
+are exclusively a compile-time operation. In the case of JPA on Android, which is uncommon but not
+unheard of, this toolkit should be usable as long as the &lt;em&gt;compiler&lt;/em&gt; used is Java 8 or higher.
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-run-code&quot;&gt;&lt;code&gt;run()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The simplest transformation we might want is to add a new property to a class where all the
+information about the property (such as visibility, type, and annotations) is hard-coded. Possibly
+the simplest interesting JPA property is a version field, which allows the JPA provider to perform
+&lt;a href=&quot;https://blogs.oracle.com/carolmcdonald/entry/jpa_2_0_concurrency_and&quot;&gt;optimistic locking&lt;/a&gt; on
+versioned records. &lt;a href=&quot;https://docs.oracle.com/javaee/7/api/javax/persistence/Version.html&quot;&gt;The Javadoc
+for &lt;code&gt;@Version&lt;/code&gt;&lt;/a&gt; specifies that the allowable types for a version field are &lt;code&gt;int&lt;/code&gt;, &lt;code&gt;Integer&lt;/code&gt;,
+&lt;code&gt;short&lt;/code&gt;, &lt;code&gt;Short&lt;/code&gt;, &lt;code&gt;long&lt;/code&gt;, &lt;code&gt;Long&lt;/code&gt;, and &lt;code&gt;java.sql.Timestamp&lt;/code&gt;. Let&amp;#8217;s pick &lt;code&gt;Long&lt;/code&gt; as our version type.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;the-annotation&quot;&gt;The annotation&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The annotation for adding a version property is &lt;code&gt;@GjtVersion&lt;/code&gt;. Most of the out-of-the-box Groovy
+transformations, such as &lt;code&gt;@ToString&lt;/code&gt;, use plain names, but using the name &lt;code&gt;@Version&lt;/code&gt; would produce
+a conflict with the actual JPA annotation, which we&amp;#8217;re attaching to the property we add. Since
+the GJT annotations will usually be composed into an organization-specific annotation collection
+and not used directly on the entity classes, I&amp;#8217;m using the &lt;code&gt;Gjt&lt;/code&gt; prefix.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersion.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@Target&lt;/span&gt;(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;ElementType&lt;/span&gt;.TYPE)
+&lt;span style=&quot;color:#007&quot;&gt;@Retention&lt;/span&gt;(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;RetentionPolicy&lt;/span&gt;.SOURCE)
+&lt;span style=&quot;color:#007&quot;&gt;@GroovyASTTransformationClass&lt;/span&gt;(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;com.chrylis.gjt.transform.GjtVersionAstTransformation&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;)
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#007&quot;&gt;@interface&lt;/span&gt; GjtVersion {
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;This annotation is about as basic as you can get; we&amp;#8217;re specifying that it&amp;#8217;s only applicable to
+&lt;code&gt;TYPE&lt;/code&gt;&amp;#160;s (we&amp;#8217;d use &quot;class&quot;, but there&amp;#8217;s no target available for that), that it doesn&amp;#8217;t need to be
+saved in the class file (since it&amp;#8217;s applied at compile time), and the class that implements the
+actual transformation. Note that the transformation is applied to the AST node where the annotation
+lives, so in this case, it&amp;#8217;ll be called for each annotated class. Some later transformations will
+be applied to fields instead.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;the-transformation&quot;&gt;The transformation&lt;/h3&gt;
+&lt;div class=&quot;admonitionblock note&quot;&gt;
+&lt;table&gt;
+&lt;tr&gt;
+&lt;td class=&quot;icon&quot;&gt;
+&lt;i class=&quot;fa icon-note&quot; title=&quot;Note&quot;&gt;&lt;/i&gt;
+&lt;/td&gt;
+&lt;td class=&quot;content&quot;&gt;
+Unfortunately, AST transformations themselves can involve significant amounts of
+boilerplate. I&amp;#8217;ve condensed several useful chunks of code out of some of the official Groovy
+transformations into the &lt;code&gt;AbstractGjtAstTransformation&lt;/code&gt; class. Additionally, the usual entry point
+into a transformation is the &lt;code&gt;visit&lt;/code&gt; method; I&amp;#8217;ve applied the usual Java pattern of implementing
+common operations in the abstract base class and then delegating the interesting but more clearly
+defined behavior to &lt;code&gt;doVisit&lt;/code&gt;.
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;I&amp;#8217;ll be including relevant lines from &lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-16-version-field-only/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java&quot;&gt;the source
+file &lt;code&gt;GjtVersionAstTransformation.java&lt;/code&gt;&lt;/a&gt;
+inline in the discussion.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;about-the-transformation&quot;&gt;About the transformation&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;First, let&amp;#8217;s take a look at the &quot;specification&quot; methods, which tell the intermediate abstract class
+what annotation this transform is triggered by and that it can only be applied to a class, not an
+interface (since the most specific the JDK supports is &lt;code&gt;ElementType.TYPE&lt;/code&gt;, which doesn&amp;#8217;t distinguish
+between classes and interfaces):&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt;&amp;lt;GjtVersion&amp;gt; annotationClass() {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; GjtVersion.class;
+}
+
+&lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;boolean&lt;/span&gt; canApplyToClassOnly() {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;true&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;These are simple and likely familiar to anyone who&amp;#8217;s worked with this inheritance pattern before.
+A bit more interesting is the &lt;code&gt;doVisit&lt;/code&gt; method, which handles actually adding the field. Note that
+the signature on the method passes in a node representing the annotation (&lt;code&gt;@GjtVersion&lt;/code&gt;) and one
+representing the node that was annotated (in this case, the class), but since many different
+elements can be annotated, and we don&amp;#8217;t want just yet to restrict this method to a particular
+kind of target, we need to cast the second argument to a &lt;code&gt;ClassNode&lt;/code&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;protected&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;void&lt;/span&gt; doVisit(AnnotationNode annotationNode, AnnotatedNode annotatedNode) {
+    ClassNode entityClass = (ClassNode) annotatedNode;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;checking-preconditions&quot;&gt;Checking preconditions&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Next, we need to check whether a field named &lt;code&gt;version&lt;/code&gt; already exists on the class&amp;#8212;&amp;#8203;if so, this
+is a problem, and we&amp;#8217;ll want to raise an appropriate compile-time error. This can happen either
+because the class specifies the field directly or because a superclass specifies the field with a
+visibility that allows the subclass to see it. The method &lt;code&gt;addError&lt;/code&gt; is defined on
+&lt;code&gt;AbstractASTTransformation&lt;/code&gt; and takes care of attaching information about the source code that
+caused the problem.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;FieldNode versionField = entityClass.getField(VERSION_FIELD_NAME);
+
+&lt;span style=&quot;color:#777&quot;&gt;// don&#39;t add the version field if it already exists on this class or is visible from a superclass&lt;/span&gt;
+&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (versionField != &lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;) {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt;(versionField.getOwner().equals(entityClass)) {
+        addError(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Class annotated with GjtVersion cannot have a version field declared&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;, versionField);
+    } &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;else&lt;/span&gt; &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (!&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Modifier&lt;/span&gt;.isPrivate(versionField.getModifiers())) {
+        addError(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Class annotated with GjtVersion cannot have a version field declared because the field exists in the parent class: &lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt; + versionField.getOwner().getName(), versionField);
+    }
+
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;For example, in Eclipse, it produces this error output:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;imageblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;img src=&quot;/public/images/2015/11/16/GjtVersion-error-in-eclipse.png&quot; alt=&quot;Eclipse error message&quot;&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;adding-the-field&quot;&gt;Adding the field!&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Next, we actually attach a new node representing a field to the class, and then add an annotation
+node (just like the one that originally triggered this transformation) to it. Note that even though
+the Java and Groovy languages will automatically initialize a reference field to &lt;code&gt;null&lt;/code&gt; if no
+initializer is provided, since we&amp;#8217;re past the parsing stage and into the AST, we have to specify
+that default &lt;code&gt;null&lt;/code&gt; value ourselves.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;versionField = entityClass.addField(VERSION_FIELD_NAME, ACC_PRIVATE, make(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt;.class), &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; ConstantExpression(&lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;));
+versionField.addAnnotation(&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; AnnotationNode(make(Version.class)));&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;checking-our-work&quot;&gt;Checking our work&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In the &lt;code&gt;groovy-jpa-examples&lt;/code&gt; module, I will be accumulating a number of simple examples for each
+of the GJT features. Let&amp;#8217;s start with &lt;code&gt;SimpleEntity&lt;/code&gt;, which just has a single &lt;code&gt;String&lt;/code&gt; value, and
+annotate it with &lt;code&gt;@GjtVersion&lt;/code&gt;. I decompiled &lt;code&gt;SimpleEntity.class&lt;/code&gt; with &lt;a href=&quot;http://jd.benow.ca/&quot;&gt;JD-GUI&lt;/a&gt;,
+and I got this code:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@Entity&lt;/span&gt;
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;class&lt;/span&gt; &lt;span style=&quot;color:#B06;font-weight:bold&quot;&gt;SimpleEntity&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;implements&lt;/span&gt; GroovyObject {
+
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;private&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; contents;
+
+    &lt;span style=&quot;color:#007&quot;&gt;@Version&lt;/span&gt;
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;private&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; version;
+
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; SimpleEntity() {
+      &lt;span style=&quot;color:#777&quot;&gt;// standard Groovy initialization&lt;/span&gt;
+    }
+
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; getContents() {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#950&quot;&gt;this&lt;/span&gt;.contents;
+    }
+
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;void&lt;/span&gt; setContents(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; paramString) {
+      &lt;span style=&quot;color:#950&quot;&gt;this&lt;/span&gt;.contents = paramString;
+    }
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Hmm. The &lt;code&gt;version&lt;/code&gt; field is definitely there, and it has the annotation we expect, but we don&amp;#8217;t have
+a getter or setter. This is because we added a just a &lt;em&gt;field&lt;/em&gt; to the class, and not a property.
+Adding the property is simple, though unfortunately in Groovy there&amp;#8217;s no easy way to create a
+read-only property, which managed properties like this &lt;code&gt;version&lt;/code&gt; really ought to be.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;All we need to do to have Groovy generate our getter and setter is to change our code to add a
+&lt;code&gt;PropertyNode&lt;/code&gt; to the class as well. There are a few different ways to do this, designed to make it
+easy to perform certain kinds of operations regardless of whether you start with the node for the
+target class, the existing field, or so on. Since we&amp;#8217;re going to just let Groovy generate its usual
+property code, we&amp;#8217;ll use this approach:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;PropertyNode versionProperty = entityClass.addProperty(VERSION_FIELD_NAME, ACC_PUBLIC, make(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt;.class), &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; ConstantExpression(&lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;), &lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;, &lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;);
+versionField = versionProperty.getField();
+versionField.setModifiers(ACC_PRIVATE);
+versionField.addAnnotation(&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; AnnotationNode(make(Version.class)));&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Now, sure enough, opening up the class in JD-GUI shows the getter and setter!&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; getVersion() {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#950&quot;&gt;this&lt;/span&gt;.version;
+}
+
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;void&lt;/span&gt; setVersion(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; paramLong) {
+    &lt;span style=&quot;color:#950&quot;&gt;this&lt;/span&gt;.version = paramLong;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;writing-a-unit-test&quot;&gt;Writing a unit test&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;It&amp;#8217;s always comforting to directly see correct results, but down the path of manual testing lies
+madness. Groovy provides some assistance in writing test for AST transforms through the &lt;code&gt;@ASTTest&lt;/code&gt;
+annotation. This annotation allows us to provide a closure to be evaluated at compile time, against
+the in-progress AST. If assertions in the closure fail, the compilation will fail, so we don&amp;#8217;t even
+have to have a test runner in place for this test.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;admonitionblock warning&quot;&gt;
+&lt;table&gt;
+&lt;tr&gt;
+&lt;td class=&quot;icon&quot;&gt;
+&lt;i class=&quot;fa icon-warning&quot; title=&quot;Warning&quot;&gt;&lt;/i&gt;
+&lt;/td&gt;
+&lt;td class=&quot;content&quot;&gt;
+However, there&amp;#8217;s one nasty gotcha with AST tests: The AST transformation must be completely compiled
+and available on the classpath before the test using the transformation is compiled, since
+transformations are actually used by the compiler, not the runtime. The Groovy-Eclipse Compiler, in
+particular, has some bugs relating to the handling and ordering of test classpaths, and it&amp;#8217;s not
+possible to reliably put tests in the same Maven module as the transformations they&amp;#8217;re testing.
+Gradle is a bit saner on this particular point, but Eclipse still won&amp;#8217;t handle the tests correctly,
+and I&amp;#8217;ve been unable to find a workaround that works reliably. (Solutions are welcome!)
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;As a partial solution, we can use Java reflection to inspect a class that we compile with
+&lt;code&gt;@GjtVersion&lt;/code&gt;. I&amp;#8217;m a big fan of &lt;a href=&quot;https://spockframework.github.io/spock/docs/1.0/index.html&quot;&gt;the
+Spock Framework&lt;/a&gt;, a test tool written in Groovy that makes tests clear and expressive. Here&amp;#8217;s how
+we can test that the field is added, that it has the proper annotation, and that the accessors
+were set up correctly:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;class&lt;/span&gt; &lt;span style=&quot;color:#B06;font-weight:bold&quot;&gt;GjtVersionAstTransformationTest&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;extends&lt;/span&gt; Specification {
+
+    &lt;span style=&quot;color:#007&quot;&gt;@GjtVersion&lt;/span&gt;
+    &lt;span style=&quot;color:#007&quot;&gt;@CompileStatic&lt;/span&gt;
+    &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;class&lt;/span&gt; &lt;span style=&quot;color:#B06;font-weight:bold&quot;&gt;Versioned&lt;/span&gt; {
+    }
+
+    def &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;annotated class has version field&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;() {
+        given:
+            &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Field&lt;/span&gt; field = Versioned.getDeclaredField(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+
+        expect:
+            &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; == field.type
+            field.getAnnotation(Version)
+    }
+
+    def &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;getters and setters for version field work&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;() {
+        given:
+            &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; randomNumber = &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Random&lt;/span&gt;().nextLong()
+
+            def v = &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; Versioned()
+            v.setVersion(randomNumber)
+
+        expect:
+            randomNumber == v.getVersion()
+            randomNumber == v.&lt;span style=&quot;color:#007&quot;&gt;@version&lt;/span&gt;
+    }
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-cleanup-code&quot;&gt;&lt;code&gt;cleanup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;We have a working and tested AST transformation that adds an &lt;code&gt;@Version Long version&lt;/code&gt; property to
+any class we annotate. That&amp;#8217;s a starting point, but even for a simple operation like adding a field,
+we&amp;#8217;re going to need a bit more flexibility, such as an option to name the property and specify the
+type. Next time, we&amp;#8217;ll parameterize that &lt;code&gt;@GjtVersion&lt;/code&gt; annotation.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-getcontext-code&quot;&gt;&lt;code&gt;getContext()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;git-tags-for-this-post&quot;&gt;Git tags for this post:&lt;/h3&gt;
+&lt;div class=&quot;ulist&quot;&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-16-version-field-only&quot;&gt;2015-11-16-version-field-only&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-16-version-field-with-property&quot;&gt;2015-11-16-version-field-with-property&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-16-version-property-test&quot;&gt;2015-11-16-version-property-test&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;</content>
+ </entry>
+ 
+ <entry>
    <title>Introducing the Groovy JPA Toolkit</title>
    <link href="https://blog.chrylis.com/2015/11/13/introducing-gjt/"/>
    <updated>2015-11-13T00:00:00+00:00</updated>
    <id>https://blog.chrylis.com/2015/11/13/introducing-gjt</id>
-   <content type="html">&lt;div class=&quot;sect2&quot;&gt;
-&lt;h3 id=&quot;code-setup-code&quot;&gt;&lt;code&gt;setup()&lt;/code&gt;&lt;/h3&gt;
+   <content type="html">&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-setup-code&quot;&gt;&lt;code&gt;setup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
 &lt;div class=&quot;paragraph&quot;&gt;
 &lt;p&gt;The &lt;a href=&quot;https://en.wikibooks.org/wiki/Java_Persistence/What_is_JPA%3F&quot;&gt;Java Persistence API&lt;/a&gt; is a
 wonderful tool for mapping Java persistent domain classes onto a data store (usually, but not
@@ -43,8 +406,10 @@ fields and property accessors into POJOs using inter-type declarations. It is, h
 its capabilities for managing relationships, and it requires Maven as a build system.&lt;/p&gt;
 &lt;/div&gt;
 &lt;/div&gt;
-&lt;div class=&quot;sect2&quot;&gt;
-&lt;h3 id=&quot;code-run-code&quot;&gt;&lt;code&gt;run()&lt;/code&gt;&lt;/h3&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-run-code&quot;&gt;&lt;code&gt;run()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
 &lt;div class=&quot;paragraph&quot;&gt;
 &lt;p&gt;The Groovy JPA Toolkit is a uniquely Groovy attempt at streamlining the task of writing JPA domain
 classes, using the power of Groovy&amp;#8217;s
@@ -61,8 +426,10 @@ Groovy AST. I&amp;#8217;ll start with the simple transformations of adding prope
 we&amp;#8217;ll tackle some of the more complicated longstanding issues with managing object relationships.&lt;/p&gt;
 &lt;/div&gt;
 &lt;/div&gt;
-&lt;div class=&quot;sect2&quot;&gt;
-&lt;h3 id=&quot;code-getcontext-code&quot;&gt;&lt;code&gt;getContext()&lt;/code&gt;&lt;/h3&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-getcontext-code&quot;&gt;&lt;code&gt;getContext()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
 &lt;div class=&quot;paragraph&quot;&gt;
 &lt;p&gt;Most of my own understanding of Groovy&amp;#8217;s compile-time metaprogramming comes from
 &lt;a href=&quot;http://www.infoq.com/presentations/groovy-compiler&quot;&gt;C&amp;eacute;dric Champeau&amp;#8217;s presentation on the
@@ -75,6 +442,7 @@ and &lt;code&gt;@ToString&lt;/code&gt; transformations.&lt;/p&gt;
 to &lt;a href=&quot;https://search.maven.org/&quot;&gt;the Central Repository&lt;/a&gt;. Comments on both design and implementation are
 welcome. If there&amp;#8217;s a use case that the Toolkit doesn&amp;#8217;t cover that you think can be automated, open
 an issue and tell me about it.&lt;/p&gt;
+&lt;/div&gt;
 &lt;/div&gt;
 &lt;/div&gt;</content>
  </entry>
