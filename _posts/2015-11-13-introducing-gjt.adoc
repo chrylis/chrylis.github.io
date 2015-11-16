@@ -7,7 +7,7 @@ comments: true
 disqus_id: introducing-gjt
 ---
 
-=== `setup()`
+== `setup()`
 
 The https://en.wikibooks.org/wiki/Java_Persistence/What_is_JPA%3F[Java Persistence API] is a
 wonderful tool for mapping Java persistent domain classes onto a data store (usually, but not
@@ -29,7 +29,7 @@ https://projects.spring.io/spring-roo/[Spring Roo], for example, uses AspectJ to
 fields and property accessors into POJOs using inter-type declarations. It is, however, limited in
 its capabilities for managing relationships, and it requires Maven as a build system.
 
-=== `run()`
+== `run()`
 
 The Groovy JPA Toolkit is a uniquely Groovy attempt at streamlining the task of writing JPA domain
 classes, using the power of Groovy's
@@ -44,7 +44,7 @@ tooling I put together while working on a specific domain implementation and lea
 Groovy AST. I'll start with the simple transformations of adding properties, and as we pick up steam
 we'll tackle some of the more complicated longstanding issues with managing object relationships.
 
-=== `getContext()`
+== `getContext()`
 
 Most of my own understanding of Groovy's compile-time metaprogramming comes from
 http://www.infoq.com/presentations/groovy-compiler[C&eacute;dric Champeau's presentation on the

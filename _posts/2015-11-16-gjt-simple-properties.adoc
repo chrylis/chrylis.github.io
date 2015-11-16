@@ -1,0 +1,235 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: "GJT: Adding simple properties"
+summary: A walkthrough of transformations that simply add a property to an annotated class.
+comments: true
+disqus_id: gjt-simple-properties
+---
+
+:code:     https://raw.githubusercontent.com/chrylis/groovy-jpa-toolkit/
+:browse:   https://github.com/chrylis/groovy-jpa-toolkit/tree/
+:tag-field-only: 2015-11-16-version-field-only
+:tag-with-property: 2015-11-16-version-field-with-property
+:tag-with-tests: 2015-11-16-version-property-test
+:transformClass: /groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java
+
+== `setup()`
+
+In this post, we'll start off by examining the simplest components of
+link:{% post_url 2015-11-13-introducing-gjt %}[the Groovy JPA Toolkit]: transformations that add
+a single property to the annotated class, such as ID and version properties. We'll also see how to
+combine these transformations with information specific to a particular domain configuration, such
+as ID generation strategies, in a reusable package with Groovy's `@AnnotationCollector`.
+
+This series assumes some familiarity with the concepts of
+link:https://en.wikipedia.org/wiki/Abstract_syntax_tree[abstract syntax trees] and the Groovy
+compilation process. For those wanting additional grounding in the AST transformation process
+generally, I recommend https://melix.github.io/ast-workshop/[C&eacute;dric's online AST Workshop].
+
+NOTE: I originally considered attempting to target Java 7 for this toolkit. However, the only
+major reason for not using Java 8 in modern code is Android compatibility, and these transformations
+are exclusively a compile-time operation. In the case of JPA on Android, which is uncommon but not
+unheard of, this toolkit should be usable as long as the _compiler_ used is Java 8 or higher.
+
+== `run()`
+
+The simplest transformation we might want is to add a new property to a class where all the
+information about the property (such as visibility, type, and annotations) is hard-coded. Possibly
+the simplest interesting JPA property is a version field, which allows the JPA provider to perform
+https://blogs.oracle.com/carolmcdonald/entry/jpa_2_0_concurrency_and[optimistic locking] on
+versioned records. https://docs.oracle.com/javaee/7/api/javax/persistence/Version.html[The Javadoc
+for `@Version`] specifies that the allowable types for a version field are `int`, `Integer`,
+`short`, `Short`, `long`, `Long`, and `java.sql.Timestamp`. Let's pick `Long` as our version type.
+
+=== The annotation
+
+The annotation for adding a version property is `@GjtVersion`. Most of the out-of-the-box Groovy
+transformations, such as `@ToString`, use plain names, but using the name `@Version` would produce
+a conflict with the actual JPA annotation, which we're attaching to the property we add. Since
+the GJT annotations will usually be composed into an organization-specific annotation collection
+and not used directly on the entity classes, I'm using the `Gjt` prefix.
+
+[source,java]
+.GjtVersion.java
+----
+include::{code}{tag-field-only}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/annotation/GjtVersion.java[lines=15..19]
+----
+
+This annotation is about as basic as you can get; we're specifying that it's only applicable to
+`TYPE`{nbsp}s (we'd use "class", but there's no target available for that), that it doesn't need to be
+saved in the class file (since it's applied at compile time), and the class that implements the
+actual transformation. Note that the transformation is applied to the AST node where the annotation
+lives, so in this case, it'll be called for each annotated class. Some later transformations will
+be applied to fields instead.
+
+=== The transformation
+
+NOTE: Unfortunately, AST transformations themselves can involve significant amounts of
+boilerplate. I've condensed several useful chunks of code out of some of the official Groovy
+transformations into the `AbstractGjtAstTransformation` class. Additionally, the usual entry point
+into a transformation is the `visit` method; I've applied the usual Java pattern of implementing
+common operations in the abstract base class and then delegating the interesting but more clearly
+defined behavior to `doVisit`.
+
+I'll be including relevant lines from link:{browse}{tag-field-only}{transformClass}[the source
+file `GjtVersionAstTransformation.java`]
+inline in the discussion.
+
+==== About the transformation
+
+First, let's take a look at the "specification" methods, which tell the intermediate abstract class
+what annotation this transform is triggered by and that it can only be applied to a class, not an
+interface (since the most specific the JDK supports is `ElementType.TYPE`, which doesn't distinguish
+between classes and interfaces):
+
+[source,java,indent=0]
+.GjtVersionAstTransformation.java
+----
+include::{code}{tag-field-only}{transformClass}[lines=24..32]
+----
+
+These are simple and likely familiar to anyone who's worked with this inheritance pattern before.
+A bit more interesting is the `doVisit` method, which handles actually adding the field. Note that
+the signature on the method passes in a node representing the annotation (`@GjtVersion`) and one
+representing the node that was annotated (in this case, the class), but since many different
+elements can be annotated, and we don't want just yet to restrict this method to a particular
+kind of target, we need to cast the second argument to a `ClassNode`.
+
+[source,java,indent=0]
+----
+include::{code}{tag-field-only}{transformClass}[lines=35..36]
+----
+
+==== Checking preconditions
+
+Next, we need to check whether a field named `version` already exists on the class--if so, this
+is a problem, and we'll want to raise an appropriate compile-time error. This can happen either
+because the class specifies the field directly or because a superclass specifies the field with a
+visibility that allows the subclass to see it. The method `addError` is defined on
+`AbstractASTTransformation` and takes care of attaching information about the source code that
+caused the problem.
+
+[source,java,indent=0]
+----
+include::{code}{tag-field-only}{transformClass}[lines=38..49]
+----
+
+For example, in Eclipse, it produces this error output:
+
+image::{{site.baseurl}}/public/images/2015/11/16/GjtVersion-error-in-eclipse.png[Eclipse error message]
+
+==== Adding the field!
+
+Next, we actually attach a new node representing a field to the class, and then add an annotation
+node (just like the one that originally triggered this transformation) to it. Note that even though
+the Java and Groovy languages will automatically initialize a reference field to `null` if no
+initializer is provided, since we're past the parsing stage and into the AST, we have to specify
+that default `null` value ourselves.
+
+[source,java,indent=0]
+----
+include::{code}{tag-field-only}{transformClass}[lines=51..52]
+----
+
+==== Checking our work
+
+In the `groovy-jpa-examples` module, I will be accumulating a number of simple examples for each
+of the GJT features. Let's start with `SimpleEntity`, which just has a single `String` value, and
+annotate it with `@GjtVersion`. I decompiled `SimpleEntity.class` with http://jd.benow.ca/[JD-GUI],
+and I got this code:
+
+[source,java]
+----
+@Entity
+public class SimpleEntity implements GroovyObject {
+
+    private String contents;
+
+    @Version
+    private Long version;
+  
+    public SimpleEntity() {
+      // standard Groovy initialization
+    }
+  
+    public String getContents() {
+        return this.contents;
+    }
+  
+    public void setContents(String paramString) {
+      this.contents = paramString;
+    }
+}
+----
+
+Hmm. The `version` field is definitely there, and it has the annotation we expect, but we don't have
+a getter or setter. This is because we added a just a _field_ to the class, and not a property.
+Adding the property is simple, though unfortunately in Groovy there's no easy way to create a
+read-only property, which managed properties like this `version` really ought to be.
+
+All we need to do to have Groovy generate our getter and setter is to change our code to add a
+`PropertyNode` to the class as well. There are a few different ways to do this, designed to make it
+easy to perform certain kinds of operations regardless of whether you start with the node for the
+target class, the existing field, or so on. Since we're going to just let Groovy generate its usual
+property code, we'll use this approach:
+
+[source,java,indent=0]
+----
+include::{code}{tag-with-property}{transformClass}[lines=52..55]
+----
+
+Now, sure enough, opening up the class in JD-GUI shows the getter and setter!
+
+[source,java]
+----
+public Long getVersion() {
+    return this.version;
+}
+  
+public void setVersion(Long paramLong) {
+    this.version = paramLong;
+}
+----
+
+==== Writing a unit test
+
+It's always comforting to directly see correct results, but down the path of manual testing lies
+madness. Groovy provides some assistance in writing test for AST transforms through the `@ASTTest`
+annotation. This annotation allows us to provide a closure to be evaluated at compile time, against
+the in-progress AST. If assertions in the closure fail, the compilation will fail, so we don't even
+have to have a test runner in place for this test.
+
+WARNING: However, there's one nasty gotcha with AST tests: The AST transformation must be completely compiled
+and available on the classpath before the test using the transformation is compiled, since
+transformations are actually used by the compiler, not the runtime. The Groovy-Eclipse Compiler, in
+particular, has some bugs relating to the handling and ordering of test classpaths, and it's not
+possible to reliably put tests in the same Maven module as the transformations they're testing.
+Gradle is a bit saner on this particular point, but Eclipse still won't handle the tests correctly,
+and I've been unable to find a workaround that works reliably. (Solutions are welcome!)
+
+As a partial solution, we can use Java reflection to inspect a class that we compile with
+`@GjtVersion`. I'm a big fan of https://spockframework.github.io/spock/docs/1.0/index.html[the
+Spock Framework], a test tool written in Groovy that makes tests clear and expressive. Here's how
+we can test that the field is added, that it has the proper annotation, and that the accessors
+were set up correctly:
+
+[source,java]
+----
+include::{code}{tag-with-tests}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtVersionAstTransformationTest.groovy[lines=13..-1]
+----
+
+== `cleanup()`
+
+We have a working and tested AST transformation that adds an `@Version Long version` property to
+any class we annotate. That's a starting point, but even for a simple operation like adding a field,
+we're going to need a bit more flexibility, such as an option to name the property and specify the
+type. Next time, we'll parameterize that `@GjtVersion` annotation.
+
+== `getContext()`
+
+=== Git tags for this post:
+
+- {browse}{tag-field-only}[{tag-field-only}]
+- {browse}{tag-with-property}[{tag-with-property}]
+- {browse}{tag-with-tests}[{tag-with-tests}]
