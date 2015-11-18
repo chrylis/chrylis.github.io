@@ -4,6 +4,7 @@ gem 'jekyll', '~> 2.5' #'~> 3.0'
 gem 'asciidoctor', '~> 1.5'
 gem 'coderay', '1.1.0'
 gem 'rake-jekyll', '~> 1.1'
+gem 'open-uri-cached'
 
 group :jekyll_plugins do
   gem "jekyll-paginate"

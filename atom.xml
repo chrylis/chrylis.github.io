@@ -4,13 +4,288 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-11-16T11:18:54+00:00</updated>
+ <updated>2015-11-18T12:48:56+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
    <email>chrylis@gmail.com</email>
  </author>
 
+ 
+ <entry>
+   <title>GJT: Adding parameterized properties</title>
+   <link href="https://blog.chrylis.com/2015/11/17/gjt-parameterized-properties/"/>
+   <updated>2015-11-17T00:00:00+00:00</updated>
+   <id>https://blog.chrylis.com/2015/11/17/gjt-parameterized-properties</id>
+   <content type="html">&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-setup-code&quot;&gt;&lt;code&gt;setup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;We have &lt;a href=&quot;/2015/11/16/gjt-simple-properties/&quot;&gt;an AST transformation that can add a
+property to an annotated class&lt;/a&gt;, but it&amp;#8217;s of limited use to us right now: It&amp;#8217;s hard-coded to add an
+&lt;code&gt;@Version Long version&lt;/code&gt;, and we might need to use both a different type and a different name.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In this post, we&amp;#8217;ll take the &lt;code&gt;@GjtVersion&lt;/code&gt; annotation and extend it to support overriding both of
+those property properties, while providing sensible defaults.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-run-code&quot;&gt;&lt;code&gt;run()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;the-annotation&quot;&gt;The annotation&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;We&amp;#8217;ll start with the simple part: the annotation itself. The &lt;code&gt;@GjtVersion&lt;/code&gt; annotation is just an
+ordinary Java annotation (it&amp;#8217;s actually written in Java!) that happens to have
+&lt;code&gt;@GroovyASTTransformationClass&lt;/code&gt; on it, and it can take parameters normally.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;I personally prefer to use &lt;code&gt;Instant&lt;/code&gt; from the new &lt;code&gt;java.time&lt;/code&gt; API, but it&amp;#8217;s not supported by all
+persistence providers (Hibernate, for example,
+&lt;a href=&quot;https://hibernate.atlassian.net/browse/HHH-8844&quot;&gt;requires version 5 and the &lt;code&gt;hibernate-java8&lt;/code&gt;
+extension&lt;/a&gt;), and &lt;code&gt;Long&lt;/code&gt; is a sensible default value. In a later post, we&amp;#8217;ll see how to easily
+set a project- or organization-wide parameter.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersion.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@Target&lt;/span&gt;(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;ElementType&lt;/span&gt;.TYPE)
+&lt;span style=&quot;color:#007&quot;&gt;@Retention&lt;/span&gt;(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;RetentionPolicy&lt;/span&gt;.SOURCE)
+&lt;span style=&quot;color:#007&quot;&gt;@GroovyASTTransformationClass&lt;/span&gt;(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;com.chrylis.gjt.transform.GjtVersionAstTransformation&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;)
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#007&quot;&gt;@interface&lt;/span&gt; GjtVersion {
+
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt;&amp;lt;?&amp;gt; type() &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;default&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt;.class;
+
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; name() &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;default&lt;/span&gt; &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;the-transformation&quot;&gt;The transformation&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Conveniently, the implementation of the transformation already uses a constant for the name of the
+property to be created! We just need to replace the constant with the parameter taken from the
+annotation.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;&lt;a href=&quot;https://melix.github.io/ast-workshop/exercise4-hints.html&quot;&gt;As C&amp;eacute;dric explains&lt;/a&gt;, there&amp;#8217;s a bit
+of a trick in that since we&amp;#8217;re dealing with the AST at this point, the value attached to the
+&lt;code&gt;AnnotationNode&lt;/code&gt; isn&amp;#8217;t a &lt;code&gt;String&lt;/code&gt;, but rather some sort of AST expression, such as a
+&lt;code&gt;ConstantExpression&lt;/code&gt;--or even &lt;code&gt;null&lt;/code&gt; if the user didn&amp;#8217;t specify the value and left it as the
+default! The built-in &lt;code&gt;AbstractASTTransformation&lt;/code&gt; class provides a few methods for working with
+annotation members, but they have some shortcomings, and we&amp;#8217;ll need to do some handling of our own.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;admonitionblock note&quot;&gt;
+&lt;table&gt;
+&lt;tr&gt;
+&lt;td class=&quot;icon&quot;&gt;
+&lt;i class=&quot;fa icon-note&quot; title=&quot;Note&quot;&gt;&lt;/i&gt;
+&lt;/td&gt;
+&lt;td class=&quot;content&quot;&gt;
+By the &lt;code&gt;SEMANTIC_ANALYSIS&lt;/code&gt; phase, where our property-adding transformations are going to run,
+&lt;code&gt;&lt;em&gt;String&lt;/em&gt;&lt;/code&gt; members have been replaced with a &lt;code&gt;ConstantExpression&lt;/code&gt;, and we can just read the value
+off of that. &lt;code&gt;&lt;em&gt;Class&lt;/em&gt;&lt;/code&gt; members, however, blow up the compiler internals if they aren&amp;#8217;t an immediate
+literal; for example, declaring a &lt;code&gt;Class&lt;/code&gt; constant in a constants class and attempting to use that
+in the annotation will blow up the Groovy compiler. Since we&amp;#8217;ll be packaging our annotations into
+collections, the amount of repetition required here will be minimal.
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;reading-default-annotation-values&quot;&gt;Reading default annotation values&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;There&amp;#8217;s no defensible reason why the Java API doesn&amp;#8217;t provide a simple mechanism for reading the
+default values of annotation members, but the best option we have is routing through the
+Reflection API. The static method &lt;code&gt;GjtUtils.getAnnotationMemberDefault&lt;/code&gt;
+provides a simple, throw-an-exception-in-your-face-on-problem interface for getting the default
+value of an annotation member, provided an &lt;code&gt;AnnotationNode&lt;/code&gt; or &lt;code&gt;Class&lt;/code&gt;, the name of the member,
+and the expected type of the value. Thanks to Spock, we have a very readable test specification
+for this method.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtUtilsTest.groovy&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;groovy&quot;&gt;&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;def&lt;/span&gt; &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;can retrieve default value for annotation type member&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;() {
+    &lt;span style=&quot;color:#606&quot;&gt;expect&lt;/span&gt;:
+        &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt; == GjtUtils.getAnnotationMemberDefault(GjtVersion, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;name&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;, &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt;)
+        &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt; == GjtUtils.getAnnotationMemberDefault(GjtVersion, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;type&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;, &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt;)
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;This method is now easily composed with the ready-made expression-value-extraction methods in
+&lt;code&gt;AbstractASTTransformation&lt;/code&gt; to produce methods that will return the annotation&amp;#8217;s default value
+if the value isn&amp;#8217;t specified. (A null-coalescing operator would be nice here.)&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;sanity-checking&quot;&gt;Sanity checking&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The JPA specification only permits certain types (basically, the integral primitives and their
+wrappers, plus &lt;code&gt;Timestamp&lt;/code&gt;) as version fields, so to be strict we could ensure that the supplied
+&lt;code&gt;Class&lt;/code&gt; parameter was in the list. However, different JPA providers have implementation-specific
+support for additional types, such as the Java 8 &lt;code&gt;Instant&lt;/code&gt;, and the cost of not validating the
+parameter is an obvious and intelligible failure in starting the persistence context. Therefore,
+we&amp;#8217;ll pass through the type as-is.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;However, there is a simple, unambiguous error that we can defensively check and provide a
+compile-time error message for: multiple &lt;code&gt;@Version&lt;/code&gt; fields. It&amp;#8217;s easy to see how someone using
+a collector annotation to declare an entity class might inadvertently add a duplicate version.
+To prevent this, we&amp;#8217;ll create a couple of simple helper methods that look through a
+&lt;code&gt;ClassNode&lt;/code&gt;&#39;s members (fields, properties, or methods must be specified) for ones that have
+a matching annotation; I&amp;#8217;m not sure why this isn&amp;#8217;t included out of the box.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtUtils.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;static&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;List&lt;/span&gt;&amp;lt;MethodNode&amp;gt; findAnnotatedMethods(ClassNode target, ClassNode annotationClass) {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; target.getMethods().stream()
+        .filter(method -&amp;gt; !method.getAnnotations(annotationClass).isEmpty())
+        .collect(Collectors.toList());
+}
+
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;static&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;List&lt;/span&gt;&amp;lt;AnnotatedNode&amp;gt; findAnnotatedMembers(ClassNode target, ClassNode annotationClass) {
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;List&lt;/span&gt;&amp;lt;AnnotatedNode&amp;gt; result = &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;ArrayList&lt;/span&gt;&amp;lt;&amp;gt;();
+    result.addAll(findAnnotatedFields(target, annotationClass));
+    result.addAll(findAnnotatedProperties(target, annotationClass));
+    result.addAll(findAnnotatedMethods(target, annotationClass));
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; result;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Now, in the transformation, we&amp;#8217;ll check to see whether there&amp;#8217;s any existing conflicting member. If
+so, we&amp;#8217;ll mark a compile-time error for it:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#777&quot;&gt;// error if there&#39;s already an @Version on the class&lt;/span&gt;
+&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;List&lt;/span&gt;&amp;lt;AnnotatedNode&amp;gt; conflicts = GjtUtils.findAnnotatedMembers(entityClass, APPLIED_ANNOTATION_CLASS_NODE);
+&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt;(!conflicts.isEmpty()) {
+    conflicts.forEach(conflict -&amp;gt; addError(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Class annotated with GjtVersion cannot have an existing @Version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;, conflict));
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In Eclipse, here&amp;#8217;s what we get when there&amp;#8217;s a conflict:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;imageblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;img src=&quot;/public/images/2015/11/17/GjtVersion-existing-version-in-Eclipse.png&quot; alt=&quot;Eclipse error message&quot;&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect3&quot;&gt;
+&lt;h4 id=&quot;adding-the-property&quot;&gt;Adding the property&lt;/h4&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;If there&amp;#8217;s no conflict, we can go ahead and add the field.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;For the sake of completeness, GJT supports using the primitive types &lt;code&gt;short&lt;/code&gt;, &lt;code&gt;int&lt;/code&gt;, and &lt;code&gt;long&lt;/code&gt;
+for the version field, even though I recommend using a wrapper to avoid any possible ambiguity about
+&quot;revision zero&quot;. Since the default value of a primitive is zero, not &lt;code&gt;null&lt;/code&gt;, we need to check
+whether the requested type is a primitive and set the appropriate expression for the default:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;ConstantExpression fieldDefaultValue = isPrimitiveType(fieldType) ?
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; ConstantExpression(&lt;span style=&quot;color:#00D&quot;&gt;0&lt;/span&gt;, &lt;span style=&quot;color:#069&quot;&gt;true&lt;/span&gt;) :
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; ConstantExpression(&lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;);&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;There&amp;#8217;s one more detail that I&amp;#8217;ll mention at this point: According to
+&lt;a href=&quot;https://docs.oracle.com/javase/specs/jls/se8/html/jls-13.html#jls-13.1&quot;&gt;the JLS at &amp;sect;13.1&lt;/a&gt;,&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;quoteblock&quot;&gt;
+&lt;blockquote&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;A construct emitted by a Java compiler must be marked as &lt;em&gt;synthetic&lt;/em&gt; if it does not correspond to
+a construct declared explicitly or implicitly in source code, unless the emitted construct is a
+class initialization method (JVMS §2.9).&lt;/p&gt;
+&lt;/div&gt;
+&lt;/blockquote&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The JLS provides guidance on what constitutes implicit declaration for Java code, but Groovy AST
+transformations are a new metaprogramming approach unavailable in Java. The standard practice for
+existing AST transformations that add new class members, such as &lt;code&gt;@Slf4j&lt;/code&gt; or &lt;code&gt;@ToString&lt;/code&gt;, is to
+consider the members that are the point of the transformation (such as the logger or &lt;code&gt;toString()&lt;/code&gt;
+method) to be implicitly declared&amp;#8212;&amp;#8203;the programmer is asking for them by annotating the class&amp;#8212;&amp;#8203;but
+internal members that may be added to facilitate the expected additions are synthetic. We&amp;#8217;ll need
+to include some of these &quot;implementation detail&quot; members when we start working with bidirectional
+relationships.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;testing&quot;&gt;Testing&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In order to ensure that the parameters are working properly, it would be best to have a
+comprehensive combinatorial test. However, the transformation is applied only at compile time, and
+we don&amp;#8217;t want to manage a herd of test entities just to check combinations.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;This is where Groovy&amp;#8217;s roots as a scripting language shine: Groovy has easy support for compiling
+classes at runtime from text, and we can just use a multiline GString to define a throwaway class
+with string substitutions for the annotation parameters!&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformationTest.groovy&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;groovy&quot;&gt;&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt; makeVersionedClass(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt; type, &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; name) {
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; GroovyClassLoader().parseClass(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&amp;quot;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;
+        @groovy.transform.CompileStatic
+        @com.chrylis.gjt.annotation.GjtVersion(type=&lt;/span&gt;&lt;span style=&quot;background-color:hsla(0,0%,0%,0.07);color:black&quot;&gt;&lt;span style=&quot;font-weight:bold;color:#666&quot;&gt;$&lt;/span&gt;type&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;.name, name=&amp;quot;&lt;/span&gt;&lt;span style=&quot;background-color:hsla(0,0%,0%,0.07);color:black&quot;&gt;&lt;span style=&quot;font-weight:bold;color:#666&quot;&gt;$&lt;/span&gt;name&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;&amp;quot;)
+        class Temp {}&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&amp;quot;&amp;quot;&lt;/span&gt;&lt;/span&gt;)
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Now it&amp;#8217;s simple to
+&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-17-version-property-parameterized/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtVersionAstTransformationTest.groovy#L50-L63&quot;&gt;repeat
+the basic reflection checks&lt;/a&gt; to verify the presence of the field by name, its type, and that it has
+the &lt;code&gt;@Version&lt;/code&gt; annotation applied.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-cleanup-code&quot;&gt;&lt;code&gt;cleanup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;You probably noticed that several aspects of this process, such as checking for collisions and then
+adding the property, are pretty much the same regardless of whether we&amp;#8217;re adding an &lt;code&gt;@Version&lt;/code&gt;
+or an &lt;code&gt;@Id&lt;/code&gt;, although IDs will usually carry additional parameterized annotations such as
+&lt;code&gt;@GeneratedValue&lt;/code&gt;. Next time, when we implement the &lt;code&gt;@GjtId&lt;/code&gt; transformation, we&amp;#8217;ll refactor the
+&lt;code&gt;doVisit&lt;/code&gt; method and pull all this common functionality out into reusable methods.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-getcontext-code&quot;&gt;&lt;code&gt;getContext()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;git-tag-for-this-post&quot;&gt;Git tag for this post:&lt;/h3&gt;
+&lt;div class=&quot;ulist&quot;&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-17-version-property-parameterized&quot;&gt;2015-11-17-version-property-parameterized&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;</content>
+ </entry>
  
  <entry>
    <title>GJT: Adding simple properties</title>
