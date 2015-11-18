@@ -1,0 +1,186 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: "GJT: Adding parameterized properties"
+summary: Adding annotation parameters to the property-adding AST transformation.
+comments: true
+disqus_id: gjt-parameterized-properties
+---
+
+:code:     https://raw.githubusercontent.com/chrylis/groovy-jpa-toolkit/
+:browse:   https://github.com/chrylis/groovy-jpa-toolkit/tree/
+:tag:      2015-11-17-version-property-parameterized
+
+== `setup()`
+
+We have link:{% post_url 2015-11-16-gjt-simple-properties %}[an AST transformation that can add a
+property to an annotated class], but it's of limited use to us right now: It's hard-coded to add an
+`@Version Long version`, and we might need to use both a different type and a different name.
+
+In this post, we'll take the `@GjtVersion` annotation and extend it to support overriding both of
+those property properties, while providing sensible defaults.
+
+== `run()`
+
+=== The annotation
+
+We'll start with the simple part: the annotation itself. The `@GjtVersion` annotation is just an
+ordinary Java annotation (it's actually written in Java!) that happens to have
+`@GroovyASTTransformationClass` on it, and it can take parameters normally.
+
+I personally prefer to use `Instant` from the new `java.time` API, but it's not supported by all
+persistence providers (Hibernate, for example,
+https://hibernate.atlassian.net/browse/HHH-8844[requires version 5 and the `hibernate-java8` 
+extension]), and `Long` is a sensible default value. In a later post, we'll see how to easily
+set a project- or organization-wide parameter.
+
+// TODO: link to collector example
+
+[source,java]
+.GjtVersion.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/annotation/GjtVersion.java[lines=15..-1]
+----
+
+=== The transformation
+
+Conveniently, the implementation of the transformation already uses a constant for the name of the
+property to be created! We just need to replace the constant with the parameter taken from the
+annotation.
+
+https://melix.github.io/ast-workshop/exercise4-hints.html[As C&eacute;dric explains], there's a bit
+of a trick in that since we're dealing with the AST at this point, the value attached to the
+`AnnotationNode` isn't a `String`, but rather some sort of AST expression, such as a
+`ConstantExpression`--or even `null` if the user didn't specify the value and left it as the
+default! The built-in `AbstractASTTransformation` class provides a few methods for working with
+annotation members, but they have some shortcomings, and we'll need to do some handling of our own.
+
+NOTE: By the `SEMANTIC_ANALYSIS` phase, where our property-adding transformations are going to run,
+`_String_` members have been replaced with a `ConstantExpression`, and we can just read the value
+off of that. `_Class_` members, however, blow up the compiler internals if they aren't an immediate
+literal; for example, declaring a `Class` constant in a constants class and attempting to use that
+in the annotation will blow up the Groovy compiler. Since we'll be packaging our annotations into
+collections, the amount of repetition required here will be minimal.
+
+==== Reading default annotation values
+
+There's no defensible reason why the Java API doesn't provide a simple mechanism for reading the
+default values of annotation members, but the best option we have is routing through the
+Reflection API. The static method `GjtUtils.getAnnotationMemberDefault`
+provides a simple, throw-an-exception-in-your-face-on-problem interface for getting the default
+value of an annotation member, provided an `AnnotationNode` or `Class`, the name of the member,
+and the expected type of the value. Thanks to Spock, we have a very readable test specification
+for this method.
+
+[source,groovy]
+.GjtUtilsTest.groovy
+----
+include::{code}{tag}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtUtilsTest.groovy[lines=30..34,indent=0]
+----
+
+This method is now easily composed with the ready-made expression-value-extraction methods in
+`AbstractASTTransformation` to produce methods that will return the annotation's default value
+if the value isn't specified. (A null-coalescing operator would be nice here.)
+
+==== Sanity checking
+
+The JPA specification only permits certain types (basically, the integral primitives and their
+wrappers, plus `Timestamp`) as version fields, so to be strict we could ensure that the supplied
+`Class` parameter was in the list. However, different JPA providers have implementation-specific
+support for additional types, such as the Java 8 `Instant`, and the cost of not validating the
+parameter is an obvious and intelligible failure in starting the persistence context. Therefore,
+we'll pass through the type as-is.
+
+However, there is a simple, unambiguous error that we can defensively check and provide a
+compile-time error message for: multiple `@Version` fields. It's easy to see how someone using
+a collector annotation to declare an entity class might inadvertently add a duplicate version.
+To prevent this, we'll create a couple of simple helper methods that look through a
+`ClassNode`+++'+++s members (fields, properties, or methods must be specified) for ones that have
+a matching annotation; I'm not sure why this isn't included out of the box.
+
+[source,java]
+.GjtUtils.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtUtils.java[lines=34..46,indent=0]
+----
+
+Now, in the transformation, we'll check to see whether there's any existing conflicting member. If
+so, we'll mark a compile-time error for it:
+
+[source,java]
+.GjtVersionAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java[lines=63..68,indent=0]
+----
+
+In Eclipse, here's what we get when there's a conflict:
+
+image::{{site.baseurl}}/public/images/2015/11/17/GjtVersion-existing-version-in-Eclipse.png[Eclipse error message]
+
+==== Adding the property
+
+If there's no conflict, we can go ahead and add the field.
+
+For the sake of completeness, GJT supports using the primitive types `short`, `int`, and `long`
+for the version field, even though I recommend using a wrapper to avoid any possible ambiguity about
+"revision zero". Since the default value of a primitive is zero, not `null`, we need to check
+whether the requested type is a primitive and set the appropriate expression for the default:
+
+[source,java]
+.GjtVersionAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java[lines=70..72,indent=0]
+----
+
+There's one more detail that I'll mention at this point: According to
+https://docs.oracle.com/javase/specs/jls/se8/html/jls-13.html#jls-13.1[the JLS at &sect;13.1],
+
+> A construct emitted by a Java compiler must be marked as _synthetic_ if it does not correspond to
+a construct declared explicitly or implicitly in source code, unless the emitted construct is a
+class initialization method (JVMS §2.9).
+
+The JLS provides guidance on what constitutes implicit declaration for Java code, but Groovy AST
+transformations are a new metaprogramming approach unavailable in Java. The standard practice for
+existing AST transformations that add new class members, such as `@Slf4j` or `@ToString`, is to
+consider the members that are the point of the transformation (such as the logger or `toString()`
+method) to be implicitly declared--the programmer is asking for them by annotating the class--but
+internal members that may be added to facilitate the expected additions are synthetic. We'll need
+to include some of these "implementation detail" members when we start working with bidirectional
+relationships.
+
+// TODO: link
+
+=== Testing
+
+In order to ensure that the parameters are working properly, it would be best to have a
+comprehensive combinatorial test. However, the transformation is applied only at compile time, and
+we don't want to manage a herd of test entities just to check combinations.
+
+This is where Groovy's roots as a scripting language shine: Groovy has easy support for compiling
+classes at runtime from text, and we can just use a multiline GString to define a throwaway class
+with string substitutions for the annotation parameters!
+
+[source,groovy]
+.GjtVersionAstTransformationTest.groovy
+----
+include::{code}{tag}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtVersionAstTransformationTest.groovy[lines=43..48,indent=0]
+----
+
+Now it's simple to
+link:{browse}{tag}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtVersionAstTransformationTest.groovy#L50-L63[repeat
+the basic reflection checks] to verify the presence of the field by name, its type, and that it has
+the `@Version` annotation applied.
+
+== `cleanup()`
+
+You probably noticed that several aspects of this process, such as checking for collisions and then
+adding the property, are pretty much the same regardless of whether we're adding an `@Version`
+or an `@Id`, although IDs will usually carry additional parameterized annotations such as
+`@GeneratedValue`. Next time, when we implement the `@GjtId` transformation, we'll refactor the
+`doVisit` method and pull all this common functionality out into reusable methods.
+
+== `getContext()`
+
+=== Git tag for this post:
+
+- {browse}{tag}[{tag}]
