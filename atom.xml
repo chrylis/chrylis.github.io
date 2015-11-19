@@ -4,13 +4,254 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-11-18T12:48:56+00:00</updated>
+ <updated>2015-11-19T13:08:00+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
    <email>chrylis@gmail.com</email>
  </author>
 
+ 
+ <entry>
+   <title>GJT: Refactoring the transformation</title>
+   <link href="https://blog.chrylis.com/2015/11/19/gjt-refactoring-transformation/"/>
+   <updated>2015-11-19T00:00:00+00:00</updated>
+   <id>https://blog.chrylis.com/2015/11/19/gjt-refactoring-transformation</id>
+   <content type="html">&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-setup-code&quot;&gt;&lt;code&gt;setup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The &lt;a href=&quot;/2015/11/17/gjt-parameterized-properties/&quot;&gt;&lt;code&gt;@GjtVersion&lt;/code&gt; AST transformation
+that adds a customizable version property to a class&lt;/a&gt; is ready to go, and we can move on to the next
+annotation, &lt;code&gt;@GjtId&lt;/code&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;As we start thinking about the semantics of &lt;code&gt;@GjtId&lt;/code&gt;, though, it immediately becomes clear that
+adding an &lt;code&gt;@Id&lt;/code&gt; is almost exactly the same as adding an &lt;code&gt;@Version&lt;/code&gt;, with the added wrinkle that
+ID fields will usually carry some additional annotations such as &lt;code&gt;@GeneratedValue&lt;/code&gt;. Rather than
+repeat the logic, we can pull it up into an intermediate abstract class.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-run-code&quot;&gt;&lt;code&gt;run()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;analyzing-the-existing-transformation&quot;&gt;Analyzing the existing transformation&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Looking at &lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-17-version-property-parameterized/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java#L43-L78&quot;&gt;the
+&lt;code&gt;doVisit&lt;/code&gt; method&lt;/a&gt;, we can see a clear, linear structure:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;ulist&quot;&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;Determine the target class and the name and type of the property to add.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Check whether there&amp;#8217;s a conflicting field (by name).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Check whether there&amp;#8217;s a conflicting member (by annotation).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Select the initial value for the property.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Create the property and apply the annotation.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The first three steps are going to be the same for any property adder. Most of the time, we&amp;#8217;ll use
+the default initial value for the property type (&lt;code&gt;null&lt;/code&gt;/zero/false), but that might vary, and
+we already know that &lt;code&gt;@GjtId&lt;/code&gt; will need to perform some additional manipulation on the ID field
+beyond annotating with &lt;code&gt;@Id&lt;/code&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;pulling-up-the-transformation-logic&quot;&gt;Pulling up the transformation logic&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The new intermediate class is called &lt;code&gt;AbstractGjtPropertyAddingAstTransformation&lt;/code&gt; (yes, it&amp;#8217;s kinda
+pushing it, but even subclasses won&amp;#8217;t be used directly in client code, and the name is exactly
+descriptive).&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Extracting the conflict checks into their own methods means that instead of using the early-exit
+return as in the existing monolithic transformation, we&amp;#8217;ll need to return a boolean indicating
+whether the field name or the annotation conflicts with an existing member. This has the nice side
+effect of reducing nested `if`s. We also need to use the lookup method to build any required error
+message instead of hard-coding the value.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;AbstractGjtPropertyAddingAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;protected&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;boolean&lt;/span&gt; fieldNameConflicts(&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;final&lt;/span&gt; ClassNode target, &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;final&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; name) {
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;final&lt;/span&gt; FieldNode existingField = target.getField(name);
+
+    &lt;span style=&quot;color:#777&quot;&gt;// no conflict, so we&#39;re fine&lt;/span&gt;
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (existingField == &lt;span style=&quot;color:#069&quot;&gt;null&lt;/span&gt;) {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;false&lt;/span&gt;;
+    }
+
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;StringBuilder&lt;/span&gt; error = &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;new&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;StringBuilder&lt;/span&gt;(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Can&#39;t add field named &lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;).append(name)
+        .append(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt; for @&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;).append(annotationClass().getSimpleName())
+        .append(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt; because it already exists&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;);
+
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (!existingField.getOwner().equals(target)) {
+        error.append(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt; on superclass &lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt;).append(existingField.getOwner().getName());
+    }
+
+    addError(error.toString(), existingField);
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;true&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Since the common code needs to be able to check for the identifying annotation
+(e.g., &lt;code&gt;@Id&lt;/code&gt;), the class has an abstract method to specify it, which is used by the
+&lt;code&gt;annotationConflicts&lt;/code&gt; method.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;AbstractGjtPropertyAddingAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;protected&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;boolean&lt;/span&gt; annotationConflicts(ClassNode target) {
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;List&lt;/span&gt;&amp;lt;AnnotatedNode&amp;gt; conflicts = GjtUtils.findAnnotatedMembers(target, IDENTIFYING_ANNOTATION_CLASS_NODE);
+
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (conflicts.isEmpty()) {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;false&lt;/span&gt;;
+    }
+
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; error = &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Class annotated with @&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt; + annotationClass().getSimpleName()
+        + &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt; can&#39;t have an existing @&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&amp;quot;&lt;/span&gt;&lt;/span&gt; + identifyingAnnotation().getSimpleName();
+
+    conflicts.forEach(conflict -&amp;gt; addError(error, conflict));
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;true&lt;/span&gt;;
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;A very simple transformation like &lt;code&gt;@GjtVersion&lt;/code&gt; that only needs to add the property and doesn&amp;#8217;t
+have any additional work to do can be implemented with just a call to &lt;code&gt;addProperty&lt;/code&gt;, but other
+transformations will need to take over at this point. The &lt;code&gt;doAddProperty&lt;/code&gt; method is the override
+point for more complicated transformations that need to customize the process. Our generalized
+&lt;code&gt;doVisit&lt;/code&gt; method is almost a transcript of the structure described above:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;AbstractGjtPropertyAddingAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;protected&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;final&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;void&lt;/span&gt; doVisit(AnnotationNode annotationNode, AnnotatedNode annotatedNode) {
+    ClassNode entity = (ClassNode) annotatedNode;
+    &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;String&lt;/span&gt; fieldName = getAnnotationMemberStringValue(annotationNode, ANNOTATION_NAME_PARAMETER_NAME);
+    ClassNode fieldType = getMemberClassValue(annotationNode, ANNOTATION_TYPE_PARAMETER_NAME, DEFAULT_TYPE_CLASS_NODE);
+
+    &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;if&lt;/span&gt; (fieldNameConflicts(entity, fieldName) || annotationConflicts(entity)) {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt;;
+    }
+
+    doAddProperty(annotationNode, entity, fieldType, fieldName);
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;converting-code-gjtversionasttransformation-code&quot;&gt;Converting &lt;code&gt;GjtVersionAstTransformation&lt;/code&gt;&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;As we&amp;#8217;ve moved the transformation logic to the superclass, converting the existing implementation is
+delightfully simple: Slash out all the methods that do things, along with the constants, and add
+a single method that specifies that the transformation is applying &lt;code&gt;@Version&lt;/code&gt; to the new property.
+This is the entire class:&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformation.java&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;java&quot;&gt;&lt;span style=&quot;color:#007&quot;&gt;@GroovyASTTransformation&lt;/span&gt;(phase = CompilePhase.SEMANTIC_ANALYSIS)
+&lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;class&lt;/span&gt; &lt;span style=&quot;color:#B06;font-weight:bold&quot;&gt;GjtVersionAstTransformation&lt;/span&gt; &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;extends&lt;/span&gt; AbstractGjtPropertyAddingAstTransformation&amp;lt;GjtVersion&amp;gt; {
+
+    &lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt;&amp;lt;GjtVersion&amp;gt; annotationClass() {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; GjtVersion.class;
+    }
+
+    &lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;public&lt;/span&gt; &lt;span style=&quot;color:#339;font-weight:bold&quot;&gt;boolean&lt;/span&gt; canApplyToClassOnly() {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; &lt;span style=&quot;color:#069&quot;&gt;true&lt;/span&gt;;
+    }
+
+    &lt;span style=&quot;color:#007&quot;&gt;@Override&lt;/span&gt;
+    &lt;span style=&quot;color:#088;font-weight:bold&quot;&gt;protected&lt;/span&gt; &lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Class&lt;/span&gt;&amp;lt;?&amp;gt; identifyingAnnotation() {
+        &lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;return&lt;/span&gt; Version.class;
+    }
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;testing&quot;&gt;Testing&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The Spock tests for the transformation pass as-is. However, these tests only check for
+success&amp;#8212;&amp;#8203;they don&amp;#8217;t ensure that we fail when conflicts are present. The inline Groovy compilation
+process makes negative testing very simple: just add an optional parameter &lt;code&gt;String body&lt;/code&gt; to
+&lt;code&gt;makeVersionedClass&lt;/code&gt;, and we can insert conflicts there if we want.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;GjtVersionAstTransformationTest.groovy&lt;/div&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;CodeRay highlight&quot;&gt;&lt;code data-lang=&quot;groovy&quot;&gt;&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;def&lt;/span&gt; &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;conflicting field names produce an error&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;() {
+    &lt;span style=&quot;color:#606&quot;&gt;when&lt;/span&gt;:
+        makeVersionedClass(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt;, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;Long version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+
+    &lt;span style=&quot;color:#606&quot;&gt;then&lt;/span&gt;:
+        MultipleCompilationErrorsException ex = thrown()
+        ex.message.contains(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;@GjtVersion&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+        ex.message.contains(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;already exists&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+
+        &lt;span style=&quot;color:#00D&quot;&gt;1&lt;/span&gt; == ex.errorCollector.errorCount
+}
+
+&lt;span style=&quot;color:#080;font-weight:bold&quot;&gt;def&lt;/span&gt; &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;conflicting annotation produces an error&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;() {
+    &lt;span style=&quot;color:#606&quot;&gt;when&lt;/span&gt;:
+        makeVersionedClass(&lt;span style=&quot;color:#0a8;font-weight:bold&quot;&gt;Long&lt;/span&gt;, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;, &lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;@javax.persistence.Version Integer foo&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+
+    &lt;span style=&quot;color:#606&quot;&gt;then&lt;/span&gt;:
+        MultipleCompilationErrorsException ex = thrown()
+        ex.message.contains(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;@GjtVersion&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+        ex.message.contains(&lt;span style=&quot;background-color:hsla(0,100%,50%,0.05)&quot;&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;span style=&quot;color:#D20&quot;&gt;existing @Version&lt;/span&gt;&lt;span style=&quot;color:#710&quot;&gt;&#39;&lt;/span&gt;&lt;/span&gt;)
+
+        &lt;span style=&quot;color:#00D&quot;&gt;1&lt;/span&gt; == ex.errorCollector.errorCount
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-cleanup-code&quot;&gt;&lt;code&gt;cleanup()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;We now have a reusable transformation that can inspect a targeted class, verify that there are no
+conflicts in naming or annotations, and add an annotated property. &lt;code&gt;@GjtVersion&lt;/code&gt; has been migrated
+to this structure, and we have both positive and negative tests passing. Next up, implementing
+&lt;code&gt;@GjtId&lt;/code&gt;!&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect1&quot;&gt;
+&lt;h2 id=&quot;code-getcontext-code&quot;&gt;&lt;code&gt;getContext()&lt;/code&gt;&lt;/h2&gt;
+&lt;div class=&quot;sectionbody&quot;&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;git-tag-for-this-post&quot;&gt;Git tag for this post:&lt;/h3&gt;
+&lt;div class=&quot;ulist&quot;&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-19-gjtversion-refactoring&quot;&gt;2015-11-19-gjtversion-refactoring&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;</content>
+ </entry>
  
  <entry>
    <title>GJT: Adding parameterized properties</title>
@@ -265,8 +506,9 @@ the &lt;code&gt;@Version&lt;/code&gt; annotation applied.&lt;/p&gt;
 &lt;p&gt;You probably noticed that several aspects of this process, such as checking for collisions and then
 adding the property, are pretty much the same regardless of whether we&amp;#8217;re adding an &lt;code&gt;@Version&lt;/code&gt;
 or an &lt;code&gt;@Id&lt;/code&gt;, although IDs will usually carry additional parameterized annotations such as
-&lt;code&gt;@GeneratedValue&lt;/code&gt;. Next time, when we implement the &lt;code&gt;@GjtId&lt;/code&gt; transformation, we&amp;#8217;ll refactor the
-&lt;code&gt;doVisit&lt;/code&gt; method and pull all this common functionality out into reusable methods.&lt;/p&gt;
+&lt;code&gt;@GeneratedValue&lt;/code&gt;. Next time, when we implement the &lt;code&gt;@GjtId&lt;/code&gt; transformation,
+&lt;a href=&quot;/2015/11/19/gjt-refactoring-transformation/&quot;&gt;we&amp;#8217;ll refactor the
+&lt;code&gt;doVisit&lt;/code&gt; method and pull all this common functionality out into reusable methods&lt;/a&gt;.&lt;/p&gt;
 &lt;/div&gt;
 &lt;/div&gt;
 &lt;/div&gt;

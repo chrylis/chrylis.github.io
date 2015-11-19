@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>
+    
+      GJT: Refactoring the transformation &middot; Hardbits
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+  <link rel="stylesheet" href="/public/css/hyde.css">
+  <link rel="stylesheet" href="/public/css/chrylis.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,400italic,700|Roboto+Slab">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body class="theme-base-0d">
+
+    <div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      <h1>
+        <img src="/public/images/logo-chrylis.png"> <a href="/">Hardbits</a>
+      </h1>
+      <p class="lead no-mobile">adventures in making hardware and software</p>
+    </div>
+
+    <nav class="sidebar-nav">
+      <section class="no-mobile">
+        <a href="/tag/ast-transformations/" class="set-5">ast-transformations</a> <a href="/tag/gjt/" class="set-5">gjt</a> <a href="/tag/groovy/" class="set-5">groovy</a> <a href="/tag/jpa/" class="set-5">jpa</a> <a href="/tag/tools/" class="set-5">tools</a>
+      <hr>
+      </section>
+
+      <a class="sidebar-nav-item" href="/">Home</a>
+
+      
+
+      
+      
+        
+          
+        
+      
+        
+          
+            <a class="sidebar-nav-item" href="/about/">About</a>
+          
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    </nav>
+
+    <p class="no-mobile">&copy; 2015 Christopher Smith</p>
+  </div>
+</div>
+
+
+    <div class="hyde-content container">
+      <article class="page">
+  <h1 class="page-title">GJT: Refactoring the transformation</h1>
+  <time datetime="2015-11-19T00:00:00+00:00" class="post-date">19 Nov 2015</time>
+  <div class="sect1">
+<h2 id="code-setup-code"><code>setup()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The <a href="/2015/11/17/gjt-parameterized-properties/"><code>@GjtVersion</code> AST transformation
+that adds a customizable version property to a class</a> is ready to go, and we can move on to the next
+annotation, <code>@GjtId</code>.</p>
+</div>
+<div class="paragraph">
+<p>As we start thinking about the semantics of <code>@GjtId</code>, though, it immediately becomes clear that
+adding an <code>@Id</code> is almost exactly the same as adding an <code>@Version</code>, with the added wrinkle that
+ID fields will usually carry some additional annotations such as <code>@GeneratedValue</code>. Rather than
+repeat the logic, we can pull it up into an intermediate abstract class.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-run-code"><code>run()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="analyzing-the-existing-transformation">Analyzing the existing transformation</h3>
+<div class="paragraph">
+<p>Looking at <a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-17-version-property-parameterized/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java#L43-L78">the
+<code>doVisit</code> method</a>, we can see a clear, linear structure:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Determine the target class and the name and type of the property to add.</p>
+</li>
+<li>
+<p>Check whether there&#8217;s a conflicting field (by name).</p>
+</li>
+<li>
+<p>Check whether there&#8217;s a conflicting member (by annotation).</p>
+</li>
+<li>
+<p>Select the initial value for the property.</p>
+</li>
+<li>
+<p>Create the property and apply the annotation.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The first three steps are going to be the same for any property adder. Most of the time, we&#8217;ll use
+the default initial value for the property type (<code>null</code>/zero/false), but that might vary, and
+we already know that <code>@GjtId</code> will need to perform some additional manipulation on the ID field
+beyond annotating with <code>@Id</code>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pulling-up-the-transformation-logic">Pulling up the transformation logic</h3>
+<div class="paragraph">
+<p>The new intermediate class is called <code>AbstractGjtPropertyAddingAstTransformation</code> (yes, it&#8217;s kinda
+pushing it, but even subclasses won&#8217;t be used directly in client code, and the name is exactly
+descriptive).</p>
+</div>
+<div class="paragraph">
+<p>Extracting the conflict checks into their own methods means that instead of using the early-exit
+return as in the existing monolithic transformation, we&#8217;ll need to return a boolean indicating
+whether the field name or the annotation conflicts with an existing member. This has the nice side
+effect of reducing nested `if`s. We also need to use the lookup method to build any required error
+message instead of hard-coding the value.</p>
+</div>
+<div class="listingblock">
+<div class="title">AbstractGjtPropertyAddingAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#088;font-weight:bold">protected</span> <span style="color:#339;font-weight:bold">boolean</span> fieldNameConflicts(<span style="color:#088;font-weight:bold">final</span> ClassNode target, <span style="color:#088;font-weight:bold">final</span> <span style="color:#0a8;font-weight:bold">String</span> name) {
+    <span style="color:#088;font-weight:bold">final</span> FieldNode existingField = target.getField(name);
+
+    <span style="color:#777">// no conflict, so we're fine</span>
+    <span style="color:#080;font-weight:bold">if</span> (existingField == <span style="color:#069">null</span>) {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">false</span>;
+    }
+
+    <span style="color:#0a8;font-weight:bold">StringBuilder</span> error = <span style="color:#080;font-weight:bold">new</span> <span style="color:#0a8;font-weight:bold">StringBuilder</span>(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">Can't add field named </span><span style="color:#710">&quot;</span></span>).append(name)
+        .append(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20"> for @</span><span style="color:#710">&quot;</span></span>).append(annotationClass().getSimpleName())
+        .append(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20"> because it already exists</span><span style="color:#710">&quot;</span></span>);
+
+    <span style="color:#080;font-weight:bold">if</span> (!existingField.getOwner().equals(target)) {
+        error.append(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20"> on superclass </span><span style="color:#710">&quot;</span></span>).append(existingField.getOwner().getName());
+    }
+
+    addError(error.toString(), existingField);
+    <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">true</span>;
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Since the common code needs to be able to check for the identifying annotation
+(e.g., <code>@Id</code>), the class has an abstract method to specify it, which is used by the
+<code>annotationConflicts</code> method.</p>
+</div>
+<div class="listingblock">
+<div class="title">AbstractGjtPropertyAddingAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#088;font-weight:bold">protected</span> <span style="color:#339;font-weight:bold">boolean</span> annotationConflicts(ClassNode target) {
+    <span style="color:#0a8;font-weight:bold">List</span>&lt;AnnotatedNode&gt; conflicts = GjtUtils.findAnnotatedMembers(target, IDENTIFYING_ANNOTATION_CLASS_NODE);
+
+    <span style="color:#080;font-weight:bold">if</span> (conflicts.isEmpty()) {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">false</span>;
+    }
+
+    <span style="color:#0a8;font-weight:bold">String</span> error = <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">Class annotated with @</span><span style="color:#710">&quot;</span></span> + annotationClass().getSimpleName()
+        + <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20"> can't have an existing @</span><span style="color:#710">&quot;</span></span> + identifyingAnnotation().getSimpleName();
+
+    conflicts.forEach(conflict -&gt; addError(error, conflict));
+    <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">true</span>;
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>A very simple transformation like <code>@GjtVersion</code> that only needs to add the property and doesn&#8217;t
+have any additional work to do can be implemented with just a call to <code>addProperty</code>, but other
+transformations will need to take over at this point. The <code>doAddProperty</code> method is the override
+point for more complicated transformations that need to customize the process. Our generalized
+<code>doVisit</code> method is almost a transcript of the structure described above:</p>
+</div>
+<div class="listingblock">
+<div class="title">AbstractGjtPropertyAddingAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@Override</span>
+<span style="color:#088;font-weight:bold">protected</span> <span style="color:#088;font-weight:bold">final</span> <span style="color:#339;font-weight:bold">void</span> doVisit(AnnotationNode annotationNode, AnnotatedNode annotatedNode) {
+    ClassNode entity = (ClassNode) annotatedNode;
+    <span style="color:#0a8;font-weight:bold">String</span> fieldName = getAnnotationMemberStringValue(annotationNode, ANNOTATION_NAME_PARAMETER_NAME);
+    ClassNode fieldType = getMemberClassValue(annotationNode, ANNOTATION_TYPE_PARAMETER_NAME, DEFAULT_TYPE_CLASS_NODE);
+
+    <span style="color:#080;font-weight:bold">if</span> (fieldNameConflicts(entity, fieldName) || annotationConflicts(entity)) {
+        <span style="color:#080;font-weight:bold">return</span>;
+    }
+
+    doAddProperty(annotationNode, entity, fieldType, fieldName);
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="converting-code-gjtversionasttransformation-code">Converting <code>GjtVersionAstTransformation</code></h3>
+<div class="paragraph">
+<p>As we&#8217;ve moved the transformation logic to the superclass, converting the existing implementation is
+delightfully simple: Slash out all the methods that do things, along with the constants, and add
+a single method that specifies that the transformation is applying <code>@Version</code> to the new property.
+This is the entire class:</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtVersionAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@GroovyASTTransformation</span>(phase = CompilePhase.SEMANTIC_ANALYSIS)
+<span style="color:#088;font-weight:bold">public</span> <span style="color:#339;font-weight:bold">class</span> <span style="color:#B06;font-weight:bold">GjtVersionAstTransformation</span> <span style="color:#088;font-weight:bold">extends</span> AbstractGjtPropertyAddingAstTransformation&lt;GjtVersion&gt; {
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">public</span> <span style="color:#0a8;font-weight:bold">Class</span>&lt;GjtVersion&gt; annotationClass() {
+        <span style="color:#080;font-weight:bold">return</span> GjtVersion.class;
+    }
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">public</span> <span style="color:#339;font-weight:bold">boolean</span> canApplyToClassOnly() {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">true</span>;
+    }
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">protected</span> <span style="color:#0a8;font-weight:bold">Class</span>&lt;?&gt; identifyingAnnotation() {
+        <span style="color:#080;font-weight:bold">return</span> Version.class;
+    }
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="testing">Testing</h3>
+<div class="paragraph">
+<p>The Spock tests for the transformation pass as-is. However, these tests only check for
+success&#8212;&#8203;they don&#8217;t ensure that we fail when conflicts are present. The inline Groovy compilation
+process makes negative testing very simple: just add an optional parameter <code>String body</code> to
+<code>makeVersionedClass</code>, and we can insert conflicts there if we want.</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtVersionAstTransformationTest.groovy</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy"><span style="color:#080;font-weight:bold">def</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">conflicting field names produce an error</span><span style="color:#710">'</span></span>() {
+    <span style="color:#606">when</span>:
+        makeVersionedClass(<span style="color:#0a8;font-weight:bold">Long</span>, <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">version</span><span style="color:#710">'</span></span>, <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">Long version</span><span style="color:#710">'</span></span>)
+
+    <span style="color:#606">then</span>:
+        MultipleCompilationErrorsException ex = thrown()
+        ex.message.contains(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">@GjtVersion</span><span style="color:#710">'</span></span>)
+        ex.message.contains(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">already exists</span><span style="color:#710">'</span></span>)
+
+        <span style="color:#00D">1</span> == ex.errorCollector.errorCount
+}
+
+<span style="color:#080;font-weight:bold">def</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">conflicting annotation produces an error</span><span style="color:#710">'</span></span>() {
+    <span style="color:#606">when</span>:
+        makeVersionedClass(<span style="color:#0a8;font-weight:bold">Long</span>, <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">version</span><span style="color:#710">'</span></span>, <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">@javax.persistence.Version Integer foo</span><span style="color:#710">'</span></span>)
+
+    <span style="color:#606">then</span>:
+        MultipleCompilationErrorsException ex = thrown()
+        ex.message.contains(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">@GjtVersion</span><span style="color:#710">'</span></span>)
+        ex.message.contains(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">existing @Version</span><span style="color:#710">'</span></span>)
+
+        <span style="color:#00D">1</span> == ex.errorCollector.errorCount
+}</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-cleanup-code"><code>cleanup()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We now have a reusable transformation that can inspect a targeted class, verify that there are no
+conflicts in naming or annotations, and add an annotated property. <code>@GjtVersion</code> has been migrated
+to this structure, and we have both positive and negative tests passing. Next up, implementing
+<code>@GjtId</code>!</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-getcontext-code"><code>getContext()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="git-tag-for-this-post">Git tag for this post:</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-19-gjtversion-refactoring">2015-11-19-gjtversion-refactoring</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+
+  
+  <h2><code>log.info</code></h2>
+  <div id="disqus_thread"></div>
+  <script>
+    var disqus_config = function () {
+      this.page.url = 'https://blog.chrylis.com/2015/11/19/gjt-refactoring-transformation/';
+      this.page.identifier = 'gjt-refactoring-transformation';
+    };
+
+    (function() {
+      var d = document, s = d.createElement('script');
+
+      s.src = '//chrylis-hardbits.disqus.com/embed.js';
+
+      s.setAttribute('data-timestamp', +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript>
+  
+</article>
+
+    </div>
+    
+    <script id="dsq-count-scr" src="https://chrylis-hardbits.disqus.com/count.js" async></script>
+  </body>
+</html>
