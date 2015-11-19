@@ -176,8 +176,9 @@ the `@Version` annotation applied.
 You probably noticed that several aspects of this process, such as checking for collisions and then
 adding the property, are pretty much the same regardless of whether we're adding an `@Version`
 or an `@Id`, although IDs will usually carry additional parameterized annotations such as
-`@GeneratedValue`. Next time, when we implement the `@GjtId` transformation, we'll refactor the
-`doVisit` method and pull all this common functionality out into reusable methods.
+`@GeneratedValue`. Next time, when we implement the `@GjtId` transformation,
+link:{% post_url 2015-11-19-gjt-refactoring-transformation %}[we'll refactor the
+`doVisit` method and pull all this common functionality out into reusable methods].
 
 == `getContext()`
 

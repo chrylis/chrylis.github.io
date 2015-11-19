@@ -1,0 +1,121 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: "GJT: Refactoring the transformation"
+summary: Refactoring the version-adding transformation for flexibility.
+comments: true
+disqus_id: gjt-refactoring-transformation
+---
+
+:code:     https://raw.githubusercontent.com/chrylis/groovy-jpa-toolkit/
+:browse:   https://github.com/chrylis/groovy-jpa-toolkit/tree/
+:tag-prev: 2015-11-17-version-property-parameterized
+:tag:      2015-11-19-gjtversion-refactoring
+
+== `setup()`
+
+The link:{% post_url 2015-11-17-gjt-parameterized-properties %}[`@GjtVersion` AST transformation
+that adds a customizable version property to a class] is ready to go, and we can move on to the next
+annotation, `@GjtId`.
+
+As we start thinking about the semantics of `@GjtId`, though, it immediately becomes clear that
+adding an `@Id` is almost exactly the same as adding an `@Version`, with the added wrinkle that
+ID fields will usually carry some additional annotations such as `@GeneratedValue`. Rather than
+repeat the logic, we can pull it up into an intermediate abstract class.
+
+== `run()`
+
+=== Analyzing the existing transformation
+
+Looking at link:{browse}{tag-prev}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java#L43-L78[the
+`doVisit` method], we can see a clear, linear structure:
+
+- Determine the target class and the name and type of the property to add.
+- Check whether there's a conflicting field (by name).
+- Check whether there's a conflicting member (by annotation).
+- Select the initial value for the property.
+- Create the property and apply the annotation.
+
+The first three steps are going to be the same for any property adder. Most of the time, we'll use
+the default initial value for the property type (`null`/zero/false), but that might vary, and
+we already know that `@GjtId` will need to perform some additional manipulation on the ID field
+beyond annotating with `@Id`.
+
+=== Pulling up the transformation logic
+
+The new intermediate class is called `AbstractGjtPropertyAddingAstTransformation` (yes, it's kinda
+pushing it, but even subclasses won't be used directly in client code, and the name is exactly
+descriptive).
+
+Extracting the conflict checks into their own methods means that instead of using the early-exit
+return as in the existing monolithic transformation, we'll need to return a boolean indicating
+whether the field name or the annotation conflicts with an existing member. This has the nice side
+effect of reducing nested ``if``s. We also need to use the lookup method to build any required error
+message instead of hard-coding the value.
+
+[source,java]
+.AbstractGjtPropertyAddingAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/AbstractGjtPropertyAddingAstTransformation.java[lines=108..126,indent=0]
+----
+
+Since the common code needs to be able to check for the identifying annotation
+(e.g., `@Id`), the class has an abstract method to specify it, which is used by the
+`annotationConflicts` method.
+
+[source,java]
+.AbstractGjtPropertyAddingAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/AbstractGjtPropertyAddingAstTransformation.java[lines=136..148,indent=0]
+----
+
+A very simple transformation like `@GjtVersion` that only needs to add the property and doesn't
+have any additional work to do can be implemented with just a call to `addProperty`, but other
+transformations will need to take over at this point. The `doAddProperty` method is the override
+point for more complicated transformations that need to customize the process. Our generalized
+`doVisit` method is almost a transcript of the structure described above:
+
+[source,java]
+.AbstractGjtPropertyAddingAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/AbstractGjtPropertyAddingAstTransformation.java[lines=65..76,indent=0]
+----
+
+=== Converting `GjtVersionAstTransformation`
+
+As we've moved the transformation logic to the superclass, converting the existing implementation is
+delightfully simple: Slash out all the methods that do things, along with the constants, and add
+a single method that specifies that the transformation is applying `@Version` to the new property.
+This is the entire class:
+
+[source,java]
+.GjtVersionAstTransformation.java
+----
+include::{code}{tag}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtVersionAstTransformation.java[lines=10..27,indent=0]
+----
+
+=== Testing
+
+The Spock tests for the transformation pass as-is. However, these tests only check for
+success--they don't ensure that we fail when conflicts are present. The inline Groovy compilation
+process makes negative testing very simple: just add an optional parameter `String body` to 
+`makeVersionedClass`, and we can insert conflicts there if we want.
+
+[source,groovy]
+.GjtVersionAstTransformationTest.groovy
+----
+include::{code}{tag}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtVersionAstTransformationTest.groovy[lines=68..90,indent=0]
+----
+
+== `cleanup()`
+
+We now have a reusable transformation that can inspect a targeted class, verify that there are no
+conflicts in naming or annotations, and add an annotated property. `@GjtVersion` has been migrated
+to this structure, and we have both positive and negative tests passing. Next up, implementing
+`@GjtId`!
+
+== `getContext()`
+
+=== Git tag for this post:
+
+- {browse}{tag}[{tag}]
