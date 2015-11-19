@@ -4,7 +4,7 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-11-19T13:08:00+00:00</updated>
+ <updated>2015-11-19T13:25:27+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
@@ -79,7 +79,7 @@ descriptive).&lt;/p&gt;
 &lt;p&gt;Extracting the conflict checks into their own methods means that instead of using the early-exit
 return as in the existing monolithic transformation, we&amp;#8217;ll need to return a boolean indicating
 whether the field name or the annotation conflicts with an existing member. This has the nice side
-effect of reducing nested `if`s. We also need to use the lookup method to build any required error
+effect of reducing nested &lt;code&gt;if&lt;/code&gt;s. We also need to use the lookup method to build any required error
 message instead of hard-coding the value.&lt;/p&gt;
 &lt;/div&gt;
 &lt;div class=&quot;listingblock&quot;&gt;

@@ -157,7 +157,7 @@ descriptive).</p>
 <p>Extracting the conflict checks into their own methods means that instead of using the early-exit
 return as in the existing monolithic transformation, we&#8217;ll need to return a boolean indicating
 whether the field name or the annotation conflicts with an existing member. This has the nice side
-effect of reducing nested `if`s. We also need to use the lookup method to build any required error
+effect of reducing nested <code>if</code>s. We also need to use the lookup method to build any required error
 message instead of hard-coding the value.</p>
 </div>
 <div class="listingblock">
