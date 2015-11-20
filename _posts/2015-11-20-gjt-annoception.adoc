@@ -1,0 +1,174 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: "GJT: Annoception"
+summary: Adding the ID transformation.
+comments: true
+disqus_id: gjt-annoception
+---
+
+:code:     https://raw.githubusercontent.com/chrylis/groovy-jpa-toolkit/
+:browse:   https://github.com/chrylis/groovy-jpa-toolkit/tree/
+:tag-no:   2015-11-20-gjtid-without-nesting
+:tag-yes:  2015-11-20-gjtid-with-nesting
+
+== `setup()`
+
+After link:{% post_url 2015-11-19-gjt-refactoring-transformation %}[refactoring the `@GjtVersion`
+transformation], we're ready to crank out `@GjtId`. The new transformation has a twist,
+though--unlike the `@Version` property, which is rather plain, JPA `@Id` fields usually carry
+additional project-specific annotations to specify attributes such as generation strategies.
+
+We'll start by adding an `@Id` without further annotations, then look into how to supply additional
+annotations to `@GjtId`.
+
+== `run()`
+
+=== No-frills `@Id`
+
+After the refactor, this is trivially easy:
+
+[source,java]
+.GjtId.java
+----
+include::{code}{tag-no}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/annotation/GjtId.java[lines=15..-1]
+----
+
+[source,java]
+.GjtIdAstTransformation.java
+----
+include::{code}{tag-no}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtIdAstTransformation.java[lines=10..-1]
+----
+
+link:{browse}{tag-no}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtIdAstTransformationTest.groovy[The
+Spock specification] is just a find-and-replace copy of the spec for the version transformation.
+
+=== Adding annotations to the `@Id`
+
+Although it's a tad cumbersome, Java supports annotations as parameters on other annotations; for
+an example, see link:https://docs.oracle.com/javaee/7/api/javax/persistence/Table.html[the JPA
+`Table` class], which can take various `Index`+++es+++ and `UniqueConstraint`+++s+++. Unfortunately,
+despite the fact that all annotations are internally rewritten to extend `Annotation`, the actual
+base type `Annotation` is not permitted as a parameter; you have to specify the individual
+annotation type in question.
+
+This isn't going to work for us; we want the end user to be able to add arbitrary annotations to the
+ID field. There's a workaround, but it's a hack and a half. Brace yourself!
+
+==== The Groovy `@AnnotationCollector`
+
+Groovy has a nifty feature called
+link:http://docs.groovy-lang.org/latest/html/api/groovy/transform/AnnotationCollector.html[the
+annotation collector], which is (naturally) an AST transformation. Annotating an annotation type
+with `@AnnotationCollector` causes Groovy to fall through a trap door during compilation. Instead
+of generating a class file with an annotation type, Groovy serializes information about all of the
+annotations attached to the collector (their types and arguments) and creates a class file with a
+_class_ that has a static method `value()` that retrieves the annotations that were originally
+applied. It then uses the `AnnotationCollectorTransform` to intercept any instances where a
+collector annotation is applied, rehydrate those annotations, and apply them in its place.
+
+==== Slyly inserting a collector annotation won't work
+
+The clever process that permits Groovy to collect annotations that aren't permitted on other
+annotations (e.g., all the JPA annotations that can only be placed on fields or getters) means that
+as far as the JVM is concerned, the collector isn't an annotation type. The Groovy compiler scans
+for collectors early in the compilation process and replaces them with their contents. The obvious
+step of annotating our ID field with a collector just results in an error saying that the collector
+isn't an annotation. We'll have to dig deeper than that.
+
+==== Paying the field a visit
+
+The `AnnotationCollectorTransform#visit` method takes AST information about the use of a collector
+and returns a list of `AnnotationNode`+++s+++ representing the original collected annotations.
+While this method is intended to be called by the compiler during an early pass, it is public, and
+with care we can coopt it for our own nefarious purposes.
+
+We start by adding a new member to the `@GjtId` annotation. While it would be ideal to enforce
+somehow that the provided classes were actually annotation collectors, Java generics don't provide
+any way to filter type parameters by annotation. The best we can do is to require the classes to
+extend `GroovyObject`, which the output classes for an `@AnnotationCollector` do.
+
+[source,java]
+.GjtId.java
+----
+include::{code}{tag-yes}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/annotation/GjtId.java[lines=26,indent=0]
+----
+
+==== "`When in trouble, delegate.`"
+
+In our transformation implementation, we're now going to check the `@GjtId` annotation to see
+whether it lists any annotation-collector classes. If it does, we'll manually pass them to the
+processor, collect the resulting rehydrated annotations, and apply them to the field we created.
+
+Since the processor operates on annotations that it finds in the source, we're going to have to
+generate synthetic annotations for it. Groovy doesn't provide any out-of-the-box support for
+unpacking potentially multivalued class parameters off of an annotation, so we'll define our own
+in `GjtUtils`. My initial implementation of this logic normalized the first two cases into
+empty and singleton lists, respectively, and then shared the rest of the pipeline, but it was a good
+bit more difficult to read than the simple conditional logic.
+
+[source,java]
+.GjtUtils.java
+----
+include::{code}{tag-yes}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtUtils.java[lines=87..101,indent=0]
+----
+
+Now that we have a list of the collector annotation classes, we wrap them in synthetic
+`AnnotationNode`+++s+++ and pass them to the processor, which will return a sequence of lists of
+nodes. Finally, we apply each of those annotation collections to the new field:
+
+[source,java]
+.GjtIdAstTransformation.java
+----
+include::{code}{tag-yes}/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/GjtIdAstTransformation.java[lines=34..45,indent=0]
+----
+
+=== `test` and `verify`
+
+Testing this functionality will be a tad tricky. Fortunately, our friend the `GroovyClassLoader`
+will make things a bit easier. We can't declare annotations as nested types--even if they eventually
+get transformed into classes!&mdash;so we'll put them in top-level files. Note that while the
+`@Column` annotation makes sense on an `@Id` field, `@OneToOne` doesn't. We'll just be checking
+the correctness of the bytecode here, not semantic validity.
+
+[source,groovy]
+.AddColumnName.groovy
+----
+include::{code}{tag-yes}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/annotationcollectors/AddColumnName.groovy[]
+----
+
+We'll copy our class-creator method and alter it to take a list of classes, dropping the annotation
+parameter or wrapping the values in brackets as appropriate. Then an ordinary Spock parameterized
+test makes sure that the transformation properly handles, zero, one, or infinity nested collectors.
+(As an extra defensive check, on the pass where we've added multiple final annotations, we also
+verify that their parameters were copied correctly.)
+
+[source,groovy]
+.GjtIdAstTransformationTest.groovy
+----
+include::{code}{tag-yes}/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtIdAstTransformationTest.groovy[lines=114..133,indent=0]
+----
+
+
+== `cleanup()`
+
+Supporting adding arbitrary annotations to generated fields required quite a bit of spelunking into
+the Groovy transformation system, but by leveraging the existing `AnnotationCollectorTransform`, we
+can define packages of annotations to be applied to them.
+
+Next up will be utilities to help manage the bidirectional relationships that are the source of a
+number of common JPA bugs.
+
+== `getContext()`
+
+Andre Steingress's link:http://blog.andresteingress.com/2013/01/25/groovy-2-1-the-annotationcollector-annotation/[writeup
+on `@AnnotationCollector`] gives a good overview and links to an example by Guillaume on a more
+traditional sort of customization.
+
+Kyle Boon link:http://kyleboon.org/blog/2014/01/22/using-meta-annotations-to-dry-your-groovy/[has
+an example] of the sort of composition we're headed for.
+
+=== Git tags for this post:
+
+- {browse}{tag-no}[{tag-no}]
+- {browse}{tag-yes}[{tag-yes}]
