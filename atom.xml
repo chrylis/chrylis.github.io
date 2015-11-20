@@ -4,7 +4,7 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-11-20T18:49:01+00:00</updated>
+ <updated>2015-11-20T20:34:58+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
@@ -87,7 +87,7 @@ Spock specification&lt;/a&gt; is just a find-and-replace copy of the spec for th
 &lt;div class=&quot;paragraph&quot;&gt;
 &lt;p&gt;Although it&amp;#8217;s a tad cumbersome, Java supports annotations as parameters on other annotations; for
 an example, see &lt;a href=&quot;https://docs.oracle.com/javaee/7/api/javax/persistence/Table.html&quot;&gt;the JPA
-&lt;code&gt;Table&lt;/code&gt; class&lt;/a&gt;, which can take various &lt;code&gt;Index&lt;/code&gt;es++ and `UniqueConstraint`s+++. Unfortunately,
+&lt;code&gt;Table&lt;/code&gt; class&lt;/a&gt;, which can take various &lt;code&gt;Index&lt;/code&gt;es and &lt;code&gt;UniqueConstraint&lt;/code&gt;s. Unfortunately,
 despite the fact that all annotations are internally rewritten to extend &lt;code&gt;Annotation&lt;/code&gt;, the actual
 base type &lt;code&gt;Annotation&lt;/code&gt; is not permitted as a parameter; you have to specify the individual
 annotation type in question.&lt;/p&gt;
