@@ -96,6 +96,301 @@
   
   <article class="post">
     <h1 class="post-title">
+      <a href="/2015/11/20/gjt-annoception/">
+        GJT: Annoception
+      </a>
+    </h1>
+
+    <time datetime="2015-11-20T00:00:00+00:00" class="post-date">20 Nov 2015</time>
+
+    <div class="sect1">
+<h2 id="code-setup-code"><code>setup()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After <a href="/2015/11/19/gjt-refactoring-transformation/">refactoring the <code>@GjtVersion</code>
+transformation</a>, we&#8217;re ready to crank out <code>@GjtId</code>. The new transformation has a twist,
+though&#8212;&#8203;unlike the <code>@Version</code> property, which is rather plain, JPA <code>@Id</code> fields usually carry
+additional project-specific annotations to specify attributes such as generation strategies.</p>
+</div>
+<div class="paragraph">
+<p>We&#8217;ll start by adding an <code>@Id</code> without further annotations, then look into how to supply additional
+annotations to <code>@GjtId</code>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-run-code"><code>run()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="no-frills-code-id-code">No-frills <code>@Id</code></h3>
+<div class="paragraph">
+<p>After the refactor, this is trivially easy:</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtId.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@Target</span>(<span style="color:#0a8;font-weight:bold">ElementType</span>.TYPE)
+<span style="color:#007">@Retention</span>(<span style="color:#0a8;font-weight:bold">RetentionPolicy</span>.SOURCE)
+<span style="color:#007">@GroovyASTTransformationClass</span>(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">com.chrylis.gjt.transform.GjtIdAstTransformation</span><span style="color:#710">&quot;</span></span>)
+<span style="color:#088;font-weight:bold">public</span> <span style="color:#007">@interface</span> GjtId {
+
+    <span style="color:#0a8;font-weight:bold">Class</span>&lt;?&gt; type() <span style="color:#080;font-weight:bold">default</span> <span style="color:#0a8;font-weight:bold">Long</span>.class;
+
+    <span style="color:#0a8;font-weight:bold">String</span> name() <span style="color:#080;font-weight:bold">default</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">id</span><span style="color:#710">&quot;</span></span>;
+}</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">GjtIdAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@GroovyASTTransformation</span>(phase = CompilePhase.SEMANTIC_ANALYSIS)
+<span style="color:#088;font-weight:bold">public</span> <span style="color:#339;font-weight:bold">class</span> <span style="color:#B06;font-weight:bold">GjtIdAstTransformation</span> <span style="color:#088;font-weight:bold">extends</span> AbstractGjtPropertyAddingAstTransformation&lt;GjtId&gt; {
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">public</span> <span style="color:#0a8;font-weight:bold">Class</span>&lt;GjtId&gt; annotationClass() {
+        <span style="color:#080;font-weight:bold">return</span> GjtId.class;
+    }
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">public</span> <span style="color:#339;font-weight:bold">boolean</span> canApplyToClassOnly() {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#069">true</span>;
+    }
+
+    <span style="color:#007">@Override</span>
+    <span style="color:#088;font-weight:bold">protected</span> <span style="color:#0a8;font-weight:bold">Class</span>&lt;?&gt; identifyingAnnotation() {
+        <span style="color:#080;font-weight:bold">return</span> Id.class;
+    }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-20-gjtid-without-nesting/groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/GjtIdAstTransformationTest.groovy">The
+Spock specification</a> is just a find-and-replace copy of the spec for the version transformation.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="adding-annotations-to-the-code-id-code">Adding annotations to the <code>@Id</code></h3>
+<div class="paragraph">
+<p>Although it&#8217;s a tad cumbersome, Java supports annotations as parameters on other annotations; for
+an example, see <a href="https://docs.oracle.com/javaee/7/api/javax/persistence/Table.html">the JPA
+<code>Table</code> class</a>, which can take various <code>Index</code>es++ and `UniqueConstraint`s+++. Unfortunately,
+despite the fact that all annotations are internally rewritten to extend <code>Annotation</code>, the actual
+base type <code>Annotation</code> is not permitted as a parameter; you have to specify the individual
+annotation type in question.</p>
+</div>
+<div class="paragraph">
+<p>This isn&#8217;t going to work for us; we want the end user to be able to add arbitrary annotations to the
+ID field. There&#8217;s a workaround, but it&#8217;s a hack and a half. Brace yourself!</p>
+</div>
+<div class="sect3">
+<h4 id="the-groovy-code-annotationcollector-code">The Groovy <code>@AnnotationCollector</code></h4>
+<div class="paragraph">
+<p>Groovy has a nifty feature called
+<a href="http://docs.groovy-lang.org/latest/html/api/groovy/transform/AnnotationCollector.html">the
+annotation collector</a>, which is (naturally) an AST transformation. Annotating an annotation type
+with <code>@AnnotationCollector</code> causes Groovy to fall through a trap door during compilation. Instead
+of generating a class file with an annotation type, Groovy serializes information about all of the
+annotations attached to the collector (their types and arguments) and creates a class file with a
+<em>class</em> that has a static method <code>value()</code> that retrieves the annotations that were originally
+applied. It then uses the <code>AnnotationCollectorTransform</code> to intercept any instances where a
+collector annotation is applied, rehydrate those annotations, and apply them in its place.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="slyly-inserting-a-collector-annotation-won-t-work">Slyly inserting a collector annotation won&#8217;t work</h4>
+<div class="paragraph">
+<p>The clever process that permits Groovy to collect annotations that aren&#8217;t permitted on other
+annotations (e.g., all the JPA annotations that can only be placed on fields or getters) means that
+as far as the JVM is concerned, the collector isn&#8217;t an annotation type. The Groovy compiler scans
+for collectors early in the compilation process and replaces them with their contents. The obvious
+step of annotating our ID field with a collector just results in an error saying that the collector
+isn&#8217;t an annotation. We&#8217;ll have to dig deeper than that.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="paying-the-field-a-visit">Paying the field a visit</h4>
+<div class="paragraph">
+<p>The <code>AnnotationCollectorTransform#visit</code> method takes AST information about the use of a collector
+and returns a list of <code>AnnotationNode</code>s representing the original collected annotations.
+While this method is intended to be called by the compiler during an early pass, it is public, and
+with care we can coopt it for our own nefarious purposes.</p>
+</div>
+<div class="paragraph">
+<p>We start by adding a new member to the <code>@GjtId</code> annotation. While it would be ideal to enforce
+somehow that the provided classes were actually annotation collectors, Java generics don&#8217;t provide
+any way to filter type parameters by annotation. The best we can do is to require the classes to
+extend <code>GroovyObject</code>, which the output classes for an <code>@AnnotationCollector</code> do.</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtId.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#0a8;font-weight:bold">Class</span>&lt;? <span style="color:#088;font-weight:bold">extends</span> GroovyObject&gt;<span style="color:#339;font-weight:bold">[]</span> annotationCollectors() <span style="color:#080;font-weight:bold">default</span> {};</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="when-in-trouble-delegate">&#8220;When in trouble, delegate.&#8221;</h4>
+<div class="paragraph">
+<p>In our transformation implementation, we&#8217;re now going to check the <code>@GjtId</code> annotation to see
+whether it lists any annotation-collector classes. If it does, we&#8217;ll manually pass them to the
+processor, collect the resulting rehydrated annotations, and apply them to the field we created.</p>
+</div>
+<div class="paragraph">
+<p>Since the processor operates on annotations that it finds in the source, we&#8217;re going to have to
+generate synthetic annotations for it. Groovy doesn&#8217;t provide any out-of-the-box support for
+unpacking potentially multivalued class parameters off of an annotation, so we&#8217;ll define our own
+in <code>GjtUtils</code>. My initial implementation of this logic normalized the first two cases into
+empty and singleton lists, respectively, and then shared the rest of the pipeline, but it was a good
+bit more difficult to read than the simple conditional logic.</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtUtils.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#088;font-weight:bold">public</span> <span style="color:#088;font-weight:bold">static</span> <span style="color:#0a8;font-weight:bold">List</span>&lt;ClassNode&gt; getAnnotationMemberClassesValue(AnnotationNode node, <span style="color:#0a8;font-weight:bold">String</span> name) {
+    <span style="color:#0a8;font-weight:bold">Expression</span> member = node.getMember(name);
+    <span style="color:#080;font-weight:bold">if</span> (member == <span style="color:#069">null</span>) {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#0a8;font-weight:bold">Collections</span>.emptyList();
+    }
+
+    <span style="color:#080;font-weight:bold">if</span> (member <span style="color:#080;font-weight:bold">instanceof</span> ClassExpression) {
+        <span style="color:#080;font-weight:bold">return</span> <span style="color:#0a8;font-weight:bold">Collections</span>.singletonList(member.getType());
+    }
+
+    <span style="color:#080;font-weight:bold">return</span> ((ListExpression) member).getExpressions().stream()
+        .map(ClassExpression.class::cast)
+        .map(ClassExpression::getType)
+        .collect(Collectors.toList());
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have a list of the collector annotation classes, we wrap them in synthetic
+<code>AnnotationNode</code>s and pass them to the processor, which will return a sequence of lists of
+nodes. Finally, we apply each of those annotation collections to the new field:</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtIdAstTransformation.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@Override</span>
+<span style="color:#088;font-weight:bold">protected</span> <span style="color:#339;font-weight:bold">void</span> doAddProperty(AnnotationNode annotation, ClassNode target, ClassNode type, <span style="color:#0a8;font-weight:bold">String</span> name) {
+    PropertyNode property = addProperty(target, type, name);
+    FieldNode field = property.getField();
+
+    <span style="color:#0a8;font-weight:bold">List</span>&lt;ClassNode&gt; annotationCollectors = getAnnotationMemberClassesValue(annotation, <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">annotationCollectors</span><span style="color:#710">&quot;</span></span>);
+
+    annotationCollectors.stream()
+        .map(AnnotationNode::<span style="color:#080;font-weight:bold">new</span>)
+        .map(collector -&gt; collectorProcessor.visit(collector, collector, field, sourceUnit))
+        .forEach(field::addAnnotations);
+}</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="code-test-code-and-code-verify-code"><code>test</code> and <code>verify</code></h3>
+<div class="paragraph">
+<p>Testing this functionality will be a tad tricky. Fortunately, our friend the <code>GroovyClassLoader</code>
+will make things a bit easier. We can&#8217;t declare annotations as nested types&#8212;&#8203;even if they eventually
+get transformed into classes!&mdash;so we&#8217;ll put them in top-level files. Note that while the
+<code>@Column</code> annotation makes sense on an <code>@Id</code> field, <code>@OneToOne</code> doesn&#8217;t. We&#8217;ll just be checking
+the correctness of the bytecode here, not semantic validity.</p>
+</div>
+<div class="listingblock">
+<div class="title">AddColumnName.groovy</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy"><span style="color:#080;font-weight:bold">package</span> com.chrylis.gjt.transform.annotationcollectors
+
+<span style="color:#080;font-weight:bold">import</span> <span style="color:#B44;font-weight:bold">groovy.transform.AnnotationCollector</span>
+
+<span style="color:#080;font-weight:bold">import</span> <span style="color:#B44;font-weight:bold">javax.persistence.Column</span>
+
+<span style="color:#007">@AnnotationCollector</span>
+<span style="color:#007">@Column</span>(name = <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">foobar</span><span style="color:#710">&quot;</span></span>)
+<span style="color:#007">@interface</span> AddColumnName {
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We&#8217;ll copy our class-creator method and alter it to take a list of classes, dropping the annotation
+parameter or wrapping the values in brackets as appropriate. Then an ordinary Spock parameterized
+test makes sure that the transformation properly handles, zero, one, or infinity nested collectors.
+(As an extra defensive check, on the pass where we&#8217;ve added multiple final annotations, we also
+verify that their parameters were copied correctly.)</p>
+</div>
+<div class="listingblock">
+<div class="title">GjtIdAstTransformationTest.groovy</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy"><span style="color:#080;font-weight:bold">def</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">annotation collector correctly copies annotations</span><span style="color:#710">'</span></span>(<span style="color:#0a8;font-weight:bold">List</span>&lt;<span style="color:#0a8;font-weight:bold">Class</span>&gt; parameters, <span style="color:#339;font-weight:bold">int</span> numAnnotations) {
+    <span style="color:#606">given</span>:
+        <span style="color:#0a8;font-weight:bold">Field</span> field = makeClassWithAnnotationCollectors(parameters).getDeclaredField(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">id</span><span style="color:#710">'</span></span>)
+
+    <span style="color:#606">expect</span>:
+        <span style="color:#0a8;font-weight:bold">Long</span> == field.type
+        field.getAnnotation(Id)
+        numAnnotations == field.annotations.length
+
+    <span style="color:#080;font-weight:bold">if</span>(field.annotations.length == <span style="color:#00D">3</span>) {
+        <span style="color:#080;font-weight:bold">assert</span> field.getAnnotation(Column).name() == <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">foobar</span><span style="color:#710">'</span></span>
+        <span style="color:#080;font-weight:bold">assert</span> field.getAnnotation(OneToOne).mappedBy() == <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">asdf</span><span style="color:#710">'</span></span>
+    }
+
+    <span style="color:#606">where</span>:
+        parameters                   || numAnnotations
+        <span style="color:#339;font-weight:bold">[]</span>                           || <span style="color:#00D">1</span>
+        [AddOneToOne]                || <span style="color:#00D">2</span>
+        [AddOneToOne, AddColumnName] || <span style="color:#00D">3</span>
+}</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-cleanup-code"><code>cleanup()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Supporting adding arbitrary annotations to generated fields required quite a bit of spelunking into
+the Groovy transformation system, but by leveraging the existing <code>AnnotationCollectorTransform</code>, we
+can define packages of annotations to be applied to them.</p>
+</div>
+<div class="paragraph">
+<p>Next up will be utilities to help manage the bidirectional relationships that are the source of a
+number of common JPA bugs.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-getcontext-code"><code>getContext()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Andre Steingress&#8217;s <a href="http://blog.andresteingress.com/2013/01/25/groovy-2-1-the-annotationcollector-annotation/">writeup
+on <code>@AnnotationCollector</code></a> gives a good overview and links to an example by Guillaume on a more
+traditional sort of customization.</p>
+</div>
+<div class="paragraph">
+<p>Kyle Boon <a href="http://kyleboon.org/blog/2014/01/22/using-meta-annotations-to-dry-your-groovy/">has
+an example</a> of the sort of composition we&#8217;re headed for.</p>
+</div>
+<div class="sect2">
+<h3 id="git-tags-for-this-post">Git tags for this post:</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-20-gjtid-without-nesting">2015-11-20-gjtid-without-nesting</a></p>
+</li>
+<li>
+<p><a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-11-20-gjtid-with-nesting">2015-11-20-gjtid-with-nesting</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+  </article>
+  
+  <article class="post">
+    <h1 class="post-title">
       <a href="/2015/11/19/gjt-refactoring-transformation/">
         GJT: Refactoring the transformation
       </a>
