@@ -1,0 +1,244 @@
+---
+layout: page
+tags: groovy jpa gjt ast-transformations tools
+title: "GJT: Spooky action at a distance"
+summary: A transformation that keeps both ends of a bidirectional relationship in sync.
+comments: true
+disqus_id: gjt-action-at-a-distance
+---
+
+:code:     https://raw.githubusercontent.com/chrylis/groovy-jpa-toolkit/
+:browse:   https://github.com/chrylis/groovy-jpa-toolkit/tree/
+:tag: 2015-12-02-twowaysetter
+:annotationClass: /groovy-jpa-annotations/src/main/java/com/chrylis/gjt/annotation/TwoWaySetter.java
+:transformClass: /groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java
+:testClass: /groovy-jpa-annotations/src/test/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformationTest.groovy
+
+"A spooky action at a distance."
+-- Albert Einstein, letter to Max Born
+
+== `setup()`
+
+=== Object relationships and state corruption
+
+Up until this point, the transformations we've introduced have all applied to a single class,
+adding some property whose definition is likely to be the same across the domain for all entity
+classes.
+
+Some of the most vexing boilerplate in JPA, however, involves managed relationships: The
+persistence provider is responsible for setting up bidirectional relationships when retrieving
+entities from the database, but the programmer is responsible for keeping any changes in sync.
+
+The usual recommendation for managing this is to identify one side of the relationship as the
+"primary" (which might or might not be the formal owning side), put a setter on that class that
+sets both fields, and limit the scope of the secondary's setter to protected or default to
+prevent link:https://en.wikibooks.org/wiki/Java_Persistence/Relationships#Object_corruption.2C_one_side_of_the_relationship_is_not_updated_after_updating_the_other_side[object
+corruption] from invocations on the "wrong" side.
+
+None of the existing solutions is satisfactory. Even the best current option, the double setter,
+has the disadvantage of being cumbersome at best, especially if it's to support anything but a
+write-once operation (specifically, changing the related object to a new one or setting it to
+`null`).
+
+=== Two-way setters
+
+The GJT approach to the problem introduces a bit more complexity to the bytecode but solves it in a
+consistent and client-friendly manner. Borrowing an idea from JPA's `@OneToOne` mapping directive,
+we will implement a _two-way setter_; that is, a setter `Foo#setBar(Bar)` that simultaneously
+changes the fields `Foo.bar` and `Bar.foo` without exposing a `Bar#setFoo(Foo)` that happens to be
+a landmine.
+
+NOTE: Let us define the _corresponding class_ of a relationship field `foo` (called the _owning
+field_) to be the field's declared type and the _corresponding field_ to be the field of the
+corresponding class (whose declared type must be the same as the class on which `foo` is declared,
+which is the _owning class_) that represents the inverse side of the relationship. Generally
+speaking, these are congruent with the types and fields specified by `@OneToOne` mappings.
+
+In order to allow the relationship fields to remain private and provide a setter that both will not
+be invoked accidentally and is not susceptible to infinite recursion, GJT introduces a _synthetic
+setter_ on the corresponding class for the corresponding field that is used as a means of direct
+write access. The pseudocode for the operation looks something like this:
+
+[source,java]
+.Foo pseudocode
+----
+void setBar(Bar bar) {
+    if(this.bar != null)
+        this.bar.secretSetFoo(null);
+
+    this.bar = bar;
+    bar.secretSetFoo(this);
+}
+----
+
+To prevent `bar.setFoo(baz)` from causing object corruption, GJT requires that the two-way setter
+annotation be applied on _both_ sides of the relationship and will raise a compile-time error if
+it is not. To accommodate situations where a setter may need to execute further code beyond just
+changing fields (for example, triggering some sort of calculation), the annotation will provide a
+mechanism for invoking methods before and after the setter code.
+
+IMPORTANT: Because `@TwoWaySetter` involves both the owning and corresponding classes, it requires
+that at least the initial compilation of both classes happen at the same time. This is usually the
+case when classes have a bidirectional relationship.
+
+== `run()`
+
+=== The annotation
+
+The names of the earlier property-adding annotations were prefixed with `Gjt` because they are
+primarily intended to be used in annotation collections and because their names intentionally
+mirror the standard annotations from `javax.persistence`. Starting with `@TwoWaySetter`, the next
+GJT annotations are intended to be applied inline in the source and are adding new concepts not
+already provided, so these annotations will not be prefixed.
+
+`@TwoWaySetter` provides an optional parameter `mappedBy` that is analogous to the parameter on
+`@OneToOne`. It is only necessary if more than one field on the corresponding class is of the same
+type as the owning class, but if specified, it must point to the correct field.
+
+[source,java]
+.TwoWaySetter.java
+----
+include::{code}{tag}{annotationClass}[lines=10..15]
+----
+
+=== The transformation
+
+This AST transformation has a decidedly different structure from the property-adding
+transformations. At a high level, the transformation's logic is:
+
+. Perform sanity checks (this field backs a property, is not final, and is of a reference type).
+. Identify the corresponding field for the annotated field.
+. Confirm that the corresponding field is annotated with `@TwoWaySetter`.
+. Confirm that the corresponding field's corresponding field is this field itself.
+. Add a synthetic setter to this class to be used by the public setter on the corresponding class.
+. Create a setter block for this field's property that also invokes the synthetic setter on the
+  corresponding class.
+
+==== Analysis steps
+
+The first four steps are fairly straightforward if a bit verbose in the code. The
+link:{browse}{tag}{transformClass}#L97-L111[method `sane` makes sure that the annotated field
+can really be a bidirectional property], and
+link:{browse}{tag}{transformClass}#L113-L171[`findCorrespondingField` attempts to find the other
+side of the relationship],
+link:{browse}{tag}{transformClass}#L135-L147[preferring an explicit `mappedBy` if present] and
+link:{browse}{tag}{transformClass}#L149-L159[trying to find a unique candidate (annotated and of
+the right type) as a fallback].
+
+The transformation's `doVisit` method finds the corresponding field and
+link:{browse}{tag}{transformClass}#L71-L86[makes sure that _that_
+field's corresponding field is the field we started from] (to prevent, for example, confusion in a
+case where more than one bidirectional relationship between two classes exists).
+
+==== The synthetic setter
+
+In order to prevent infinite recursion when trying to update both sides of a relationship, the
+two-way setter needs a backdoor to be able to set the corresponding field. To do this without
+runtime reflection hacks, the backdoor will need to be public, but we don't want client programmers
+accidentally using it instead of the managed setters.
+
+Java provides two features that will help us. The character `$` is legal for use in Java
+identifiers but reserved for use in generated code. (This reservation can't be enforced by the
+compiler, but it's universally observed.) Also,
+link:https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.8[the `Synthetic`
+attribute] indicates that a class or member was not explicitly or implicitly declared by the
+programmer but was inserted because it is needed by some other system (such as methods linking
+outer and inner classes).
+
+In this case, link:{browse}{tag}{transformClass}#L173-L182[we will add a `public Synthetic` method]
+named the same as the ordinary setter with `$gjt_` prepended (so for a property `foo`, the method
+will be named `$gjt_setFoo`). The synthetic attribute will prevent most tooling, such as IDEs,
+from displaying the method as a candidate (as for autocompletion), and if for some reason a
+developer explicitly invokes the method, there is no possibility that it will be confused for an
+"ordinary" method.
+
+The contents of the synthetic setter will be the ordinary plain contents of a setter--assigning a
+new value to the field, and that's all. All of the management semantics will be applied on the
+owning side's public setter.
+
+==== The two-way setter
+
+The actual implementation of the public setter for the property is tricky because there are some
+gotchas that most programmers miss that can leave object relationships in an inconsistent state.
+While the sequences don't actually get invoked very often (_changing_ the endpoints of a one-to-one
+relationship is fairly unusual), we should ensure correctness even in edge cases.
+
+The simplest and most common case is when the corresponding object is unattached--it's new, or
+there's just no relationship at all yet. However, if the corresponding object is already attached
+to a different instance of the owning class, then it's necessary to first break that relationship
+from both sides. Additionally, if the owning object already has a relationship, it's necessary to
+disassociate the relationship before changing out the field.
+
+Consider the case of an existing relationship between `+Foo f0 <-> Bar b0+` and
+`+Foo f1 <-> Bar b1+`. We want to associate `+f0 <-> b1+`. At the end of the exchange, both
+`b0.foo` and `f1.bar` should be null (since we reassigned their corresponding objects).
+
+[source,groovy]
+----
+void setBar(Bar b1) {              // f0.setBar(b1)
+    if(this.bar != null) {         // f0.bar == b0
+        this.bar.$gjt_setFoo(null) // b0.foo <- null
+    }
+
+    if(b1.foo != null) {           // b1.foo == f1, f1.bar == b1
+        b1.foo.bar = null          // f1.bar <- null
+    }
+
+    this.bar = b1                  // f0.bar <- b1
+    b1.$gjt_setFoo(this)           // b1.foo <- f0
+}
+----
+
+The setter body is created in link:{browse}{tag}{transformClass}#L197-L230[`createManagedSetterBody`].
+(For ease of following the different parties involved, the code uses a "relationship breakup"
+metaphor that I believe makes the roles of the various objects understandable.) Unfortunately,
+the Groovy bytecode generated has some strange idiosyncrasies, such as the implementation of
+`notNullX(var)`, which turns into:
+
+[source,java]
+----
+if ((this.foo != null ? 1 : 0) != 0)
+----
+
+I suspect that this is just a failure to deal with `null` sanely in the bytecode generator that
+deals with link:http://www.groovy-lang.org/semantics.html#Groovy-Truth[Groovy truth]. The code for
+accessing the owning field on the other instance of the same class (`b1.foo.bar` above), which
+should simply be a trivial field access, instead turns into a detour through the Groovy runtime and
+metaclass (even on a statically-compiled class):
+
+----
+Object localObject;
+localObject = null;
+ScriptBytecodeAdapter.setGroovyObjectField((Bar)ScriptBytecodeAdapter.castToType(localObject, Bar.class), Foo.class, target, (String)"foo");
+----
+
+link:https://issues.apache.org/jira/browse/GROOVY-7700[I've opened an issue for this particular case].
+
+For all of the weirdness in the generated bytecode, however, _the transformation works_, and the
+overhead is likely to be swamped by the other operations involved in JPA-based persistence.
+
+=== Testing
+
+The cases to be tested here are fairly easy to understand. The big "integration" test is
+cross-linking, wiring together two objects that each have pre-existing relationships, and it works
+just as it should:
+
+[source,groovy]
+----
+include::{code}{tag}{testClass}[lines=59..79,indent=0]
+----
+
+== `cleanup()`
+
+This transformation really got deep into the sort of manipulations that are available with Groovy
+AST transformations--we're interacting with other classes, adding methods, and modifying properties.
+At the end, we have an easy, reliable solution to the longstanding bidirectional relationship
+issue--for one-to-ones. With a future transformation, we'll tackle many-to-one relationships, and
+we'll also look at packaging up some common implementation patterns into reusable templates to
+make writing and maintaining JPA entities easier.
+
+== `getContext()`
+
+=== Git tag for this post:
+
+- {browse}{tag}[{tag}]
