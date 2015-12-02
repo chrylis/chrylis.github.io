@@ -84,6 +84,10 @@
       
         
       
+        
+          
+        
+      
     </nav>
 
     <p class="no-mobile">&copy; 2015 Christopher Smith</p>
@@ -161,7 +165,7 @@ and not used directly on the entity classes, I&#8217;m using the <code>Gjt</code
 </div>
 <div class="paragraph">
 <p>This annotation is about as basic as you can get; we&#8217;re specifying that it&#8217;s only applicable to
-<code>TYPE</code>&#160;s (we&#8217;d use "class", but there&#8217;s no target available for that), that it doesn&#8217;t need to be
+<code>TYPE</code>s (we&#8217;d use "class", but there&#8217;s no target available for that), that it doesn&#8217;t need to be
 saved in the class file (since it&#8217;s applied at compile time), and the class that implements the
 actual transformation. Note that the transformation is applied to the AST node where the annotation
 lives, so in this case, it&#8217;ll be called for each annotated class. Some later transformations will

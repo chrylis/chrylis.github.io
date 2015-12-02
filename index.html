@@ -84,6 +84,10 @@
       
         
       
+        
+          
+        
+      
     </nav>
 
     <p class="no-mobile">&copy; 2015 Christopher Smith</p>
@@ -93,6 +97,363 @@
 
     <div class="hyde-content container">
       <div class="posts">
+  
+  <article class="post">
+    <h1 class="post-title">
+      <a href="/2015/12/02/gjt-action-at-a-distance/">
+        GJT: Spooky action at a distance
+      </a>
+    </h1>
+
+    <time datetime="2015-12-02T00:00:00+00:00" class="post-date">02 Dec 2015</time>
+
+    <div class="quoteblock">
+<blockquote>
+A spooky action at a distance.
+</blockquote>
+<div class="attribution">
+&#8212; Albert Einstein<br>
+<cite>letter to Max Born</cite>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-setup-code"><code>setup()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="object-relationships-and-state-corruption">Object relationships and state corruption</h3>
+<div class="paragraph">
+<p>Up until this point, the transformations we&#8217;ve introduced have all applied to a single class,
+adding some property whose definition is likely to be the same across the domain for all entity
+classes.</p>
+</div>
+<div class="paragraph">
+<p>Some of the most vexing boilerplate in JPA, however, involves managed relationships: The
+persistence provider is responsible for setting up bidirectional relationships when retrieving
+entities from the database, but the programmer is responsible for keeping any changes in sync.</p>
+</div>
+<div class="paragraph">
+<p>The usual recommendation for managing this is to identify one side of the relationship as the
+"primary" (which might or might not be the formal owning side), put a setter on that class that
+sets both fields, and limit the scope of the secondary&#8217;s setter to protected or default to
+prevent <a href="https://en.wikibooks.org/wiki/Java_Persistence/Relationships#Object_corruption.2C_one_side_of_the_relationship_is_not_updated_after_updating_the_other_side">object
+corruption</a> from invocations on the "wrong" side.</p>
+</div>
+<div class="paragraph">
+<p>None of the existing solutions is satisfactory. Even the best current option, the double setter,
+has the disadvantage of being cumbersome at best, especially if it&#8217;s to support anything but a
+write-once operation (specifically, changing the related object to a new one or setting it to
+<code>null</code>).</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="two-way-setters">Two-way setters</h3>
+<div class="paragraph">
+<p>The GJT approach to the problem introduces a bit more complexity to the bytecode but solves it in a
+consistent and client-friendly manner. Borrowing an idea from JPA&#8217;s <code>@OneToOne</code> mapping directive,
+we will implement a <em>two-way setter</em>; that is, a setter <code>Foo#setBar(Bar)</code> that simultaneously
+changes the fields <code>Foo.bar</code> and <code>Bar.foo</code> without exposing a <code>Bar#setFoo(Foo)</code> that happens to be
+a landmine.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+Let us define the <em>corresponding class</em> of a relationship field <code>foo</code> (called the <em>owning
+field</em>) to be the field&#8217;s declared type and the <em>corresponding field</em> to be the field of the
+corresponding class (whose declared type must be the same as the class on which <code>foo</code> is declared,
+which is the <em>owning class</em>) that represents the inverse side of the relationship. Generally
+speaking, these are congruent with the types and fields specified by <code>@OneToOne</code> mappings.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>In order to allow the relationship fields to remain private and provide a setter that both will not
+be invoked accidentally and is not susceptible to infinite recursion, GJT introduces a <em>synthetic
+setter</em> on the corresponding class for the corresponding field that is used as a means of direct
+write access. The pseudocode for the operation looks something like this:</p>
+</div>
+<div class="listingblock">
+<div class="title">Foo pseudocode</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#339;font-weight:bold">void</span> setBar(Bar bar) {
+    <span style="color:#080;font-weight:bold">if</span>(<span style="color:#950">this</span>.bar != <span style="color:#069">null</span>)
+        <span style="color:#950">this</span>.bar.secretSetFoo(<span style="color:#069">null</span>);
+
+    <span style="color:#950">this</span>.bar = bar;
+    bar.secretSetFoo(<span style="color:#950">this</span>);
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To prevent <code>bar.setFoo(baz)</code> from causing object corruption, GJT requires that the two-way setter
+annotation be applied on <em>both</em> sides of the relationship and will raise a compile-time error if
+it is not. To accommodate situations where a setter may need to execute further code beyond just
+changing fields (for example, triggering some sort of calculation), the annotation will provide a
+mechanism for invoking methods before and after the setter code.</p>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+Because <code>@TwoWaySetter</code> involves both the owning and corresponding classes, it requires
+that at least the initial compilation of both classes happen at the same time. This is usually the
+case when classes have a bidirectional relationship.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-run-code"><code>run()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="the-annotation">The annotation</h3>
+<div class="paragraph">
+<p>The names of the earlier property-adding annotations were prefixed with <code>Gjt</code> because they are
+primarily intended to be used in annotation collections and because their names intentionally
+mirror the standard annotations from <code>javax.persistence</code>. Starting with <code>@TwoWaySetter</code>, the next
+GJT annotations are intended to be applied inline in the source and are adding new concepts not
+already provided, so these annotations will not be prefixed.</p>
+</div>
+<div class="paragraph">
+<p><code>@TwoWaySetter</code> provides an optional parameter <code>mappedBy</code> that is analogous to the parameter on
+<code>@OneToOne</code>. It is only necessary if more than one field on the corresponding class is of the same
+type as the owning class, but if specified, it must point to the correct field.</p>
+</div>
+<div class="listingblock">
+<div class="title">TwoWaySetter.java</div>
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#007">@Target</span>(<span style="color:#0a8;font-weight:bold">ElementType</span>.FIELD)
+<span style="color:#007">@Retention</span>(<span style="color:#0a8;font-weight:bold">RetentionPolicy</span>.CLASS)
+<span style="color:#007">@GroovyASTTransformationClass</span>(<span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#D20">com.chrylis.gjt.transform.TwoWaySetterAstTransformation</span><span style="color:#710">&quot;</span></span>)
+<span style="color:#088;font-weight:bold">public</span> <span style="color:#007">@interface</span> TwoWaySetter {
+    <span style="color:#0a8;font-weight:bold">String</span> mappedBy() <span style="color:#080;font-weight:bold">default</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">&quot;</span><span style="color:#710">&quot;</span></span>;
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="the-transformation">The transformation</h3>
+<div class="paragraph">
+<p>This AST transformation has a decidedly different structure from the property-adding
+transformations. At a high level, the transformation&#8217;s logic is:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Perform sanity checks (this field backs a property, is not final, and is of a reference type).</p>
+</li>
+<li>
+<p>Identify the corresponding field for the annotated field.</p>
+</li>
+<li>
+<p>Confirm that the corresponding field is annotated with <code>@TwoWaySetter</code>.</p>
+</li>
+<li>
+<p>Confirm that the corresponding field&#8217;s corresponding field is this field itself.</p>
+</li>
+<li>
+<p>Add a synthetic setter to this class to be used by the public setter on the corresponding class.</p>
+</li>
+<li>
+<p>Create a setter block for this field&#8217;s property that also invokes the synthetic setter on the
+corresponding class.</p>
+</li>
+</ol>
+</div>
+<div class="sect3">
+<h4 id="analysis-steps">Analysis steps</h4>
+<div class="paragraph">
+<p>The first four steps are fairly straightforward if a bit verbose in the code. The
+<a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L97-L111">method <code>sane</code> makes sure that the annotated field
+can really be a bidirectional property</a>, and
+<a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L113-L171"><code>findCorrespondingField</code> attempts to find the other
+side of the relationship</a>,
+<a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L135-L147">preferring an explicit <code>mappedBy</code> if present</a> and
+<a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L149-L159">trying to find a unique candidate (annotated and of
+the right type) as a fallback</a>.</p>
+</div>
+<div class="paragraph">
+<p>The transformation&#8217;s <code>doVisit</code> method finds the corresponding field and
+<a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L71-L86">makes sure that <em>that</em>
+field&#8217;s corresponding field is the field we started from</a> (to prevent, for example, confusion in a
+case where more than one bidirectional relationship between two classes exists).</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="the-synthetic-setter">The synthetic setter</h4>
+<div class="paragraph">
+<p>In order to prevent infinite recursion when trying to update both sides of a relationship, the
+two-way setter needs a backdoor to be able to set the corresponding field. To do this without
+runtime reflection hacks, the backdoor will need to be public, but we don&#8217;t want client programmers
+accidentally using it instead of the managed setters.</p>
+</div>
+<div class="paragraph">
+<p>Java provides two features that will help us. The character <code>$</code> is legal for use in Java
+identifiers but reserved for use in generated code. (This reservation can&#8217;t be enforced by the
+compiler, but it&#8217;s universally observed.) Also,
+<a href="https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.8">the <code>Synthetic</code>
+attribute</a> indicates that a class or member was not explicitly or implicitly declared by the
+programmer but was inserted because it is needed by some other system (such as methods linking
+outer and inner classes).</p>
+</div>
+<div class="paragraph">
+<p>In this case, <a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L173-L182">we will add a <code>public Synthetic</code> method</a>
+named the same as the ordinary setter with <code>$gjt_</code> prepended (so for a property <code>foo</code>, the method
+will be named <code>$gjt_setFoo</code>). The synthetic attribute will prevent most tooling, such as IDEs,
+from displaying the method as a candidate (as for autocompletion), and if for some reason a
+developer explicitly invokes the method, there is no possibility that it will be confused for an
+"ordinary" method.</p>
+</div>
+<div class="paragraph">
+<p>The contents of the synthetic setter will be the ordinary plain contents of a setter&#8212;&#8203;assigning a
+new value to the field, and that&#8217;s all. All of the management semantics will be applied on the
+owning side&#8217;s public setter.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="the-two-way-setter">The two-way setter</h4>
+<div class="paragraph">
+<p>The actual implementation of the public setter for the property is tricky because there are some
+gotchas that most programmers miss that can leave object relationships in an inconsistent state.
+While the sequences don&#8217;t actually get invoked very often (<em>changing</em> the endpoints of a one-to-one
+relationship is fairly unusual), we should ensure correctness even in edge cases.</p>
+</div>
+<div class="paragraph">
+<p>The simplest and most common case is when the corresponding object is unattached&#8212;&#8203;it&#8217;s new, or
+there&#8217;s just no relationship at all yet. However, if the corresponding object is already attached
+to a different instance of the owning class, then it&#8217;s necessary to first break that relationship
+from both sides. Additionally, if the owning object already has a relationship, it&#8217;s necessary to
+disassociate the relationship before changing out the field.</p>
+</div>
+<div class="paragraph">
+<p>Consider the case of an existing relationship between <code>Foo f0 &lt;-&gt; Bar b0</code> and
+<code>Foo f1 &lt;-&gt; Bar b1</code>. We want to associate <code>f0 &lt;-&gt; b1</code>. At the end of the exchange, both
+<code>b0.foo</code> and <code>f1.bar</code> should be null (since we reassigned their corresponding objects).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy"><span style="color:#339;font-weight:bold">void</span> setBar(Bar b1) {              <span style="color:#777">// f0.setBar(b1)</span>
+    <span style="color:#080;font-weight:bold">if</span>(<span style="color:#950">this</span>.bar != <span style="color:#069">null</span>) {         <span style="color:#777">// f0.bar == b0</span>
+        <span style="color:#950">this</span>.bar.<span style="color:#F00;background-color:#FAA">$</span>gjt_setFoo(<span style="color:#069">null</span>) <span style="color:#777">// b0.foo &lt;- null</span>
+    }
+
+    <span style="color:#080;font-weight:bold">if</span>(b1.foo != <span style="color:#069">null</span>) {           <span style="color:#777">// b1.foo == f1, f1.bar == b1</span>
+        b1.foo.bar = <span style="color:#069">null</span>          <span style="color:#777">// f1.bar &lt;- null</span>
+    }
+
+    <span style="color:#950">this</span>.bar = b1                  <span style="color:#777">// f0.bar &lt;- b1</span>
+    b1.<span style="color:#F00;background-color:#FAA">$</span>gjt_setFoo(<span style="color:#950">this</span>)           <span style="color:#777">// b1.foo &lt;- f0</span>
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The setter body is created in <strong>link here</strong>. (For ease of following the different parties involved,
+the code uses a "relationship breakup" metaphor that I believe makes the roles of the various
+objects understandable.) Unfortunately, the Groovy bytecode generated has some strange
+idiosyncrasies, such as the implementation of <code>notNullX(var)</code>, which turns into:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="java"><span style="color:#080;font-weight:bold">if</span> ((<span style="color:#950">this</span>.foo != <span style="color:#069">null</span> ? <span style="color:#00D">1</span> : <span style="color:#00D">0</span>) != <span style="color:#00D">0</span>)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I suspect that this is just a failure to deal with <code>null</code> sanely in the bytecode generator that
+deals with <a href="http://www.groovy-lang.org/semantics.html#Groovy-Truth">Groovy truth</a>. The code for
+accessing the owning field on the other instance of the same class (<code>b1.foo.bar</code> above), which
+should simply be a trivial field access, instead turns into a detour through the Groovy runtime and
+metaclass (even on a statically-compiled class):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>Object localObject;
+localObject = null;
+ScriptBytecodeAdapter.setGroovyObjectField((Bar)ScriptBytecodeAdapter.castToType(localObject, Bar.class), Foo.class, target, (String)"foo");</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><a href="https://issues.apache.org/jira/browse/GROOVY-7700">I&#8217;ve opened an issue for this particular case</a>.</p>
+</div>
+<div class="paragraph">
+<p>For all of the weirdness in the generated bytecode, however, <em>the transformation works</em>, and the
+overhead is likely to be swamped by the other operations involved in JPA-based persistence.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="testing">Testing</h3>
+<div class="paragraph">
+<p>The cases to be tested here are fairly easy to understand. The big "integration" test is
+cross-linking, wiring together two objects that each have pre-existing relationships, and it works
+just as it should:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="CodeRay highlight"><code data-lang="groovy"><span style="color:#080;font-weight:bold">def</span> <span style="background-color:hsla(0,100%,50%,0.05)"><span style="color:#710">'</span><span style="color:#D20">cross-updates work</span><span style="color:#710">'</span></span>() {
+    <span style="color:#606">given</span>:
+        Foo f1 = <span style="color:#080;font-weight:bold">new</span> Foo()
+        Bar b1 = <span style="color:#080;font-weight:bold">new</span> Bar(<span style="color:#606">foo</span>: f1)
+
+        Foo f2 = <span style="color:#080;font-weight:bold">new</span> Foo()
+        Bar b2 = <span style="color:#080;font-weight:bold">new</span> Bar(<span style="color:#606">foo</span>: f2)
+
+    <span style="color:#606">expect</span>:
+        b1 == f1.bar
+        b2 == f2.bar
+
+    <span style="color:#606">when</span>:
+        f1.bar = b2
+
+    <span style="color:#606">then</span>:
+        b2 == f1.bar
+        f1 == b2.foo
+        <span style="color:#069">null</span> == f2.bar
+        <span style="color:#069">null</span> == b1.foo
+}</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-cleanup-code"><code>cleanup()</code></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This transformation really got deep into the sort of manipulations that are available with Groovy
+AST transformations&#8212;&#8203;we&#8217;re interacting with other classes, adding methods, and modifying properties.
+At the end, we have an easy, reliable solution to the longstanding bidirectional relationship
+issue&#8212;&#8203;for one-to-ones. With a future transformation, we&#8217;ll tackle many-to-one relationships, and
+we&#8217;ll also look at packaging up some common implementation patterns into reusable templates to
+make writing and maintaining JPA entities easier.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="code-getcontext-code"><code>getContext()</code></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="git-tag-for-this-post">Git tag for this post:</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter">2015-12-02-twowaysetter</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+  </article>
   
   <article class="post">
     <h1 class="post-title">
@@ -989,7 +1350,7 @@ and not used directly on the entity classes, I&#8217;m using the <code>Gjt</code
 </div>
 <div class="paragraph">
 <p>This annotation is about as basic as you can get; we&#8217;re specifying that it&#8217;s only applicable to
-<code>TYPE</code>&#160;s (we&#8217;d use "class", but there&#8217;s no target available for that), that it doesn&#8217;t need to be
+<code>TYPE</code>s (we&#8217;d use "class", but there&#8217;s no target available for that), that it doesn&#8217;t need to be
 saved in the class file (since it&#8217;s applied at compile time), and the class that implements the
 actual transformation. Note that the transformation is applied to the AST node where the annotation
 lives, so in this case, it&#8217;ll be called for each annotated class. Some later transformations will
@@ -1280,88 +1641,11 @@ type. Next time, we&#8217;ll parameterize that <code>@GjtVersion</code> annotati
 </div>
   </article>
   
-  <article class="post">
-    <h1 class="post-title">
-      <a href="/2015/11/13/introducing-gjt/">
-        Introducing the Groovy JPA Toolkit
-      </a>
-    </h1>
-
-    <time datetime="2015-11-13T00:00:00+00:00" class="post-date">13 Nov 2015</time>
-
-    <div class="sect1">
-<h2 id="code-setup-code"><code>setup()</code></h2>
-<div class="sectionbody">
-<div class="paragraph">
-<p>The <a href="https://en.wikibooks.org/wiki/Java_Persistence/What_is_JPA%3F">Java Persistence API</a> is a
-wonderful tool for mapping Java persistent domain classes onto a data store (usually, but not
-always, a SQL database). JPA providers such as <a href="http://hibernate.org/orm">Hibernate ORM</a> manage
-mappings, conversions, lazy joins, transactions, and more with minimal effort on our part.</p>
-</div>
-<div class="paragraph">
-<p>However, even though JPA is comparatively lightweight (anyone remember
-<a href="https://docs.oracle.com/cd/E16439_01/doc.1013/e13981/ent21imp001.htm">EJB CMP</a>?), there are a few
-common bits of boilerplate that get repeated ad nauseam, such as specifying <code>@Id</code> and <code>@Version</code>
-fields, and
-<a href="https://schuchert.wikispaces.com/JPA+Tutorial+1+-+Make+Relationship+Bi-directional">managing</a>
-<a href="https://dzone.com/articles/jpa-implementation-patterns-4">bidirectional</a>
-<a href="http://blog.jbaysolutions.com/2011/09/19/jpa-2-relationships-onetomany/">relationships</a>
-is a tedious chore that is prone to subtle heisenbugs. Repetitive code ought to be replaced with
-intelligent tooling.</p>
-</div>
-<div class="paragraph">
-<p>Some of these issues have been addressed to varying degrees:
-<a href="https://projects.spring.io/spring-roo/">Spring Roo</a>, for example, uses AspectJ to insert bookkeeping
-fields and property accessors into POJOs using inter-type declarations. It is, however, limited in
-its capabilities for managing relationships, and it requires Maven as a build system.</p>
-</div>
-</div>
-</div>
-<div class="sect1">
-<h2 id="code-run-code"><code>run()</code></h2>
-<div class="sectionbody">
-<div class="paragraph">
-<p>The Groovy JPA Toolkit is a uniquely Groovy attempt at streamlining the task of writing JPA domain
-classes, using the power of Groovy&#8217;s
-<a href="http://www.groovy-lang.org/metaprogramming.html#_compile_time_metaprogramming">compile-time
-AST transformations</a>, which allow for comprehensive control over classes as they&#8217;re being compiled.
-We can insert properties, add annotations to class members, and even <em>modify other classes</em>, which
-permits managing those pesky relationships and even packaging up some common design patterns
-into a single annotation.</p>
-</div>
-<div class="paragraph">
-<p>This series will walk through the development of the GJT, which is a refinement of some ad-hoc
-tooling I put together while working on a specific domain implementation and learning the
-Groovy AST. I&#8217;ll start with the simple transformations of adding properties, and as we pick up steam
-we&#8217;ll tackle some of the more complicated longstanding issues with managing object relationships.</p>
-</div>
-</div>
-</div>
-<div class="sect1">
-<h2 id="code-getcontext-code"><code>getContext()</code></h2>
-<div class="sectionbody">
-<div class="paragraph">
-<p>Most of my own understanding of Groovy&#8217;s compile-time metaprogramming comes from
-<a href="http://www.infoq.com/presentations/groovy-compiler">C&eacute;dric Champeau&#8217;s presentation on the
-Groovy compiler</a> and <a href="http://www.infoq.com/presentations/groovy-ast-transformations">Paul King&#8217;s on
-AST transformations</a>, both at SpringOne2GX 2015, as well as jumping into the source for the <code>@Slf4j</code>
-and <code>@ToString</code> transformations.</p>
-</div>
-<div class="paragraph">
-<p>The code is <a href="https://github.com/chrylis/groovy-jpa-toolkit">hosted on GitHub</a> and will be pushed
-to <a href="https://search.maven.org/">the Central Repository</a>. Comments on both design and implementation are
-welcome. If there&#8217;s a use case that the Toolkit doesn&#8217;t cover that you think can be automated, open
-an issue and tell me about it.</p>
-</div>
-</div>
-</div>
-  </article>
-  
 </div>
 
 <div class="pagination">
   
-    <span class="pagination-item older">Older</span>
+    <a class="pagination-item older" href="/page/2">Older</a>
   
   
     <span class="pagination-item newer">Newer</span>
