@@ -57,7 +57,7 @@ include::{code}{tag-field-only}/groovy-jpa-annotations/src/main/java/com/chrylis
 ----
 
 This annotation is about as basic as you can get; we're specifying that it's only applicable to
-`TYPE`{nbsp}s (we'd use "class", but there's no target available for that), that it doesn't need to be
+`TYPE`+++s+++ (we'd use "class", but there's no target available for that), that it doesn't need to be
 saved in the class file (since it's applied at compile time), and the class that implements the
 actual transformation. Note that the transformation is applied to the AST node where the annotation
 lives, so in this case, it'll be called for each annotated class. Some later transformations will
