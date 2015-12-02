@@ -349,10 +349,11 @@ disassociate the relationship before changing out the field.</p>
 </div>
 </div>
 <div class="paragraph">
-<p>The setter body is created in <strong>link here</strong>. (For ease of following the different parties involved,
-the code uses a "relationship breakup" metaphor that I believe makes the roles of the various
-objects understandable.) Unfortunately, the Groovy bytecode generated has some strange
-idiosyncrasies, such as the implementation of <code>notNullX(var)</code>, which turns into:</p>
+<p>The setter body is created in <a href="https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L197-L230"><code>createManagedSetterBody</code></a>.
+(For ease of following the different parties involved, the code uses a "relationship breakup"
+metaphor that I believe makes the roles of the various objects understandable.) Unfortunately,
+the Groovy bytecode generated has some strange idiosyncrasies, such as the implementation of
+<code>notNullX(var)</code>, which turns into:</p>
 </div>
 <div class="listingblock">
 <div class="content">

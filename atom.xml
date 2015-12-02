@@ -4,7 +4,7 @@
  <title>Hardbits</title>
  <link href="https://blog.chrylis.com/atom.xml" rel="self"/>
  <link href="https://blog.chrylis.com/"/>
- <updated>2015-12-02T22:43:33+00:00</updated>
+ <updated>2015-12-03T23:58:05+00:00</updated>
  <id>https://blog.chrylis.com</id>
  <author>
    <name>Christopher Smith</name>
@@ -267,10 +267,11 @@ disassociate the relationship before changing out the field.&lt;/p&gt;
 &lt;/div&gt;
 &lt;/div&gt;
 &lt;div class=&quot;paragraph&quot;&gt;
-&lt;p&gt;The setter body is created in &lt;strong&gt;link here&lt;/strong&gt;. (For ease of following the different parties involved,
-the code uses a &quot;relationship breakup&quot; metaphor that I believe makes the roles of the various
-objects understandable.) Unfortunately, the Groovy bytecode generated has some strange
-idiosyncrasies, such as the implementation of &lt;code&gt;notNullX(var)&lt;/code&gt;, which turns into:&lt;/p&gt;
+&lt;p&gt;The setter body is created in &lt;a href=&quot;https://github.com/chrylis/groovy-jpa-toolkit/tree/2015-12-02-twowaysetter/groovy-jpa-annotations/src/main/java/com/chrylis/gjt/transform/TwoWaySetterAstTransformation.java#L197-L230&quot;&gt;&lt;code&gt;createManagedSetterBody&lt;/code&gt;&lt;/a&gt;.
+(For ease of following the different parties involved, the code uses a &quot;relationship breakup&quot;
+metaphor that I believe makes the roles of the various objects understandable.) Unfortunately,
+the Groovy bytecode generated has some strange idiosyncrasies, such as the implementation of
+&lt;code&gt;notNullX(var)&lt;/code&gt;, which turns into:&lt;/p&gt;
 &lt;/div&gt;
 &lt;div class=&quot;listingblock&quot;&gt;
 &lt;div class=&quot;content&quot;&gt;
